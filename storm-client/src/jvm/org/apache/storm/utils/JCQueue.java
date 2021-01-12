@@ -18,294 +18,71 @@
 
 package org.apache.storm.utils;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import java.io.Closeable;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-import org.apache.storm.metric.api.IStatefulObject;
-import org.apache.storm.metric.internal.RateTracker;
-import org.apache.storm.metrics2.JcMetrics;
+import java.util.List;
 import org.apache.storm.metrics2.StormMetricRegistry;
 import org.apache.storm.policy.IWaitStrategy;
-import org.jctools.queues.MessagePassingQueue;
-import org.jctools.queues.MpscArrayQueue;
-import org.jctools.queues.MpscUnboundedArrayQueue;
+import org.apache.storm.shade.org.jctools.queues.MessagePassingQueue;
+import org.apache.storm.shade.org.jctools.queues.MpscArrayQueue;
+import org.apache.storm.shade.org.jctools.queues.MpscUnboundedArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class JCQueue implements IStatefulObject {
+@SuppressWarnings("checkstyle:AbbreviationAsWordInName")
+public class JCQueue implements Closeable {
     private static final Logger LOG = LoggerFactory.getLogger(JCQueue.class);
-    private static final String PREFIX = "jc-";
-    private static final ScheduledThreadPoolExecutor METRICS_REPORTER_EXECUTOR = new ScheduledThreadPoolExecutor(1,
-            new ThreadFactoryBuilder().setDaemon(true).setNameFormat(PREFIX + "metrics-reporter").build());
-
-    public static final Object INTERRUPT = new Object();
-
     private final ExitCondition continueRunning = () -> true;
-    private final JcMetrics jcMetrics;
-
-    private interface Inserter {
-        // blocking call that can be interrupted using Thread.interrupt()
-        void publish(Object obj) throws InterruptedException;
-        boolean tryPublish(Object obj);
-
-        void flush() throws InterruptedException;
-        boolean tryFlush();
-    }
-
-    /* Thread safe. Same instance can be used across multiple threads */
-    private static class DirectInserter implements Inserter {
-        private JCQueue q;
-
-        public DirectInserter(JCQueue q) {
-            this.q = q;
-        }
-
-        /** Blocking call, that can be interrupted via Thread.interrupt */
-        @Override
-        public void publish(Object obj) throws InterruptedException {
-            boolean inserted = q.tryPublishInternal(obj);
-            int idleCount = 0;
-            while (!inserted) {
-                q.metrics.notifyInsertFailure();
-                if (idleCount == 0) { // check avoids multiple log msgs when in a idle loop
-                    LOG.debug("Experiencing Back Pressure on recvQueue: '{}'. Entering BackPressure Wait", q.getName());
-                }
-
-                idleCount = q.backPressureWaitStrategy.idle(idleCount);
-                if (Thread.interrupted()) {
-                    throw new InterruptedException();
-                }
-                inserted = q.tryPublishInternal(obj);
-            }
-
-        }
-
-        /** Non-Blocking call. return value indicates success/failure */
-        @Override
-        public boolean tryPublish(Object obj) {
-            boolean inserted = q.tryPublishInternal(obj);
-            if (!inserted) {
-                q.metrics.notifyInsertFailure();
-                return false;
-            }
-            return true;
-        }
-
-        @Override
-        public void flush() throws InterruptedException {
-        }
-
-        @Override
-        public boolean tryFlush() {
-            return true;
-        }
-    } // class DirectInserter
-
-    /* Not thread safe. Have one instance per producer thread or synchronize externally */
-    private static class BatchInserter implements Inserter {
-        private JCQueue q;
-        private final int batchSz;
-        private ArrayList<Object> currentBatch;
-
-        public BatchInserter(JCQueue q, int batchSz) {
-            this.q = q;
-            this.batchSz = batchSz;
-            this.currentBatch = new ArrayList<>(batchSz + 1);
-        }
-
-        /** Blocking call - retires till element is successfully added. */
-        @Override
-        public void publish(Object obj) throws InterruptedException {
-            currentBatch.add(obj);
-            if (currentBatch.size() >= batchSz) {
-                flush();
-            }
-        }
-
-        /** Non-Blocking call. return value indicates success/failure */
-        @Override
-        public boolean tryPublish(Object obj) {
-            if (currentBatch.size() >= batchSz) {
-                if (!tryFlush()) {
-                    return false;
-                }
-            }
-            currentBatch.add(obj);
-            return true;
-        }
-
-        /** Blocking call - Does not return until at least 1 element is drained or Thread.interrupt() is received.
-         *    Uses backpressure wait strategy. */
-        @Override
-        public void flush() throws InterruptedException {
-            if (currentBatch.isEmpty()) {
-                return;
-            }
-            int publishCount = q.tryPublishInternal(currentBatch);
-            int retryCount = 0;
-            while (publishCount == 0) { // retry till at least 1 element is drained
-                q.metrics.notifyInsertFailure();
-                if (retryCount == 0) { // check avoids multiple log msgs when in a idle loop
-                    LOG.debug("Experiencing Back Pressure when flushing batch to Q: {}. Entering BackPressure Wait.", q.getName());
-                }
-                retryCount = q.backPressureWaitStrategy.idle(retryCount);
-                if (Thread.interrupted()) {
-                    throw new InterruptedException();
-                }
-                publishCount = q.tryPublishInternal(currentBatch);
-            }
-            currentBatch.subList(0, publishCount).clear();
-        }
-
-        /** Non blocking call. tries to flush as many as possible. Returns true if at least one from non-empty currentBatch was flushed
-         *      or if currentBatch is empty. Returns false otherwise */
-        @Override
-        public boolean tryFlush() {
-            if (currentBatch.isEmpty()) {
-                return true;
-            }
-            int publishCount = q.tryPublishInternal(currentBatch);
-            if (publishCount == 0) {
-                q.metrics.notifyInsertFailure();
-                return false;
-            } else {
-                currentBatch.subList(0, publishCount).clear();
-                return true;
-            }
-        }
-    } // class BatchInserter
-
-    /**
-     * This inner class provides methods to access the metrics of the JCQueue.
-     */
-    public class QueueMetrics {
-        private final RateTracker arrivalsTracker = new RateTracker(10000, 10);
-        private final RateTracker insertFailuresTracker = new RateTracker(10000, 10);
-        private final AtomicLong droppedMessages = new AtomicLong(0);
-
-        public long population() {
-            return recvQueue.size();
-        }
-
-        public long capacity() {
-            return recvQueue.capacity();
-        }
-
-        public Object getState() {
-            Map<String, Object> state = new HashMap<>();
-
-            final double arrivalRateInSecs = arrivalsTracker.reportRate();
-
-            long tuplePop = population();
-
-            // Assume the recvQueue is stable, in which the arrival rate is equal to the consumption rate.
-            // If this assumption does not hold, the calculation of sojourn time should also consider
-            // departure rate according to Queuing Theory.
-            final double sojournTime = tuplePop / Math.max(arrivalRateInSecs, 0.00001) * 1000.0;
-
-            long cap = capacity();
-            float pctFull = (1.0F * tuplePop / cap);
-
-            state.put("capacity", cap);
-            state.put("pct_full", pctFull);
-            state.put("population", tuplePop);
-
-            state.put("arrival_rate_secs", arrivalRateInSecs);
-            state.put("sojourn_time_ms", sojournTime); //element sojourn time in milliseconds
-            state.put("insert_failures", insertFailuresTracker.reportRate());
-            state.put("dropped_messages", droppedMessages);
-            state.put("overflow", overflowQ.size());
-            return state;
-        }
-
-        public void notifyArrivals(long counts) {
-            arrivalsTracker.notify(counts);
-        }
-
-        public void notifyInsertFailure() {
-            insertFailuresTracker.notify(1);
-        }
-
-        public void notifyDroppedMsg() {
-            droppedMessages.incrementAndGet();
-        }
-
-        public void close() {
-            arrivalsTracker.close();
-            insertFailuresTracker.close();
-        }
-
-    }
-
+    private final List<JCQueueMetrics> jcqMetrics = new ArrayList<>();
     private final MpscArrayQueue<Object> recvQueue;
-
     // only holds msgs from other workers (via WorkerTransfer), when recvQueue is full
     private final MpscUnboundedArrayQueue<Object> overflowQ;
-
-    private final int overflowLimit; // ensures... overflowCount <= overflowLimit. if set to 0, disables overflow.
-
-
+    private final int overflowLimit; // ensures... overflowCount <= overflowLimit. if set to 0, disables overflow limiting.
     private final int producerBatchSz;
     private final DirectInserter directInserter = new DirectInserter(this);
-
     private final ThreadLocal<BatchInserter> thdLocalBatcher = new ThreadLocal<BatchInserter>(); // ensure 1 instance per producer thd.
-
-    private final JCQueue.QueueMetrics metrics;
-
-    private String queueName;
     private final IWaitStrategy backPressureWaitStrategy;
+    private final String queueName;
 
-    public JCQueue(String queueName, int size, int overflowLimit, int producerBatchSz, IWaitStrategy backPressureWaitStrategy,
-                   String topologyId, String componentId, Integer taskId, int port) {
+    public JCQueue(String queueName, String metricNamePrefix, int size, int overflowLimit, int producerBatchSz,
+                   IWaitStrategy backPressureWaitStrategy, String topologyId, String componentId, List<Integer> taskIds,
+                   int port, StormMetricRegistry metricRegistry) {
         this.queueName = queueName;
         this.overflowLimit = overflowLimit;
         this.recvQueue = new MpscArrayQueue<>(size);
         this.overflowQ = new MpscUnboundedArrayQueue<>(size);
 
-        this.metrics = new JCQueue.QueueMetrics();
-        this.jcMetrics = StormMetricRegistry.jcMetrics(queueName, topologyId, componentId, taskId, port);
+        for (Integer taskId : taskIds) {
+            this.jcqMetrics.add(new JCQueueMetrics(metricNamePrefix, topologyId, componentId, taskId, port,
+                    metricRegistry, recvQueue, overflowQ));
+        }
 
         //The batch size can be no larger than half the full recvQueue size, to avoid contention issues.
         this.producerBatchSz = Math.max(1, Math.min(producerBatchSz, size / 2));
         this.backPressureWaitStrategy = backPressureWaitStrategy;
-
-        if (!METRICS_REPORTER_EXECUTOR.isShutdown()) {
-            METRICS_REPORTER_EXECUTOR.scheduleAtFixedRate(new Runnable() {
-                @Override
-                public void run() {
-                    jcMetrics.set(metrics);
-                }
-            }, 15, 15, TimeUnit.SECONDS);
-        }
     }
 
-    public String getName() {
+    public String getQueueName() {
         return queueName;
     }
 
-
-    public boolean haltWithInterrupt() {
-        boolean res = tryPublishInternal(INTERRUPT);
-        metrics.close();
-        METRICS_REPORTER_EXECUTOR.shutdown();
-        return res;
+    @Override
+    public void close() {
+        for (JCQueueMetrics jcQueueMetric : jcqMetrics) {
+            jcQueueMetric.close();
+        }
     }
 
-
     /**
-     * Non blocking. Returns immediately if Q is empty. Returns number of elements consumed from Q
+     * Non blocking. Returns immediately if Q is empty. Returns number of elements consumed from Q.
      */
     public int consume(JCQueue.Consumer consumer) {
         return consume(consumer, continueRunning);
     }
 
     /**
-     * Non blocking. Returns immediately if Q is empty. Runs till Q is empty OR exitCond.keepRunning() return false.
-     * Returns number of elements consumed from Q
+     * Non blocking. Returns immediately if Q is empty. Runs till Q is empty OR exitCond.keepRunning() return false. Returns number of
+     * elements consumed from Q.
      */
     public int consume(JCQueue.Consumer consumer, ExitCondition exitCond) {
         try {
@@ -319,10 +96,12 @@ public class JCQueue implements IStatefulObject {
         return recvQueue.size() + overflowQ.size();
     }
 
+    public double getQueueLoad() {
+        return ((double) recvQueue.size()) / recvQueue.capacity();
+    }
+
     /**
-     * Non blocking. Returns immediately if Q is empty. Returns number of elements consumed from Q
-     *  @param consumer
-     *  @param exitCond
+     * Non blocking. Returns immediately if Q is empty. Returns number of elements consumed from Q.
      */
     private int consumeImpl(Consumer consumer, ExitCondition exitCond) throws InterruptedException {
         int drainCount = 0;
@@ -337,7 +116,7 @@ public class JCQueue implements IStatefulObject {
 
         int overflowDrainCount = 0;
         int limit = overflowQ.size();
-        while (exitCond.keepRunning()  &&  (overflowDrainCount < limit)) { // 2nd cond prevents staying stuck with consuming overflow
+        while (exitCond.keepRunning() && (overflowDrainCount < limit)) { // 2nd cond prevents staying stuck with consuming overflow
             Object tuple = overflowQ.poll();
             ++overflowDrainCount;
             consumer.accept(tuple);
@@ -352,7 +131,9 @@ public class JCQueue implements IStatefulObject {
     // Non Blocking. returns true/false indicating success/failure. Fails if full.
     private boolean tryPublishInternal(Object obj) {
         if (recvQueue.offer(obj)) {
-            metrics.notifyArrivals(1);
+            for (JCQueueMetrics jcQueueMetric : jcqMetrics) {
+                jcQueueMetric.notifyArrivals(1);
+            }
             return true;
         }
         return false;
@@ -362,15 +143,17 @@ public class JCQueue implements IStatefulObject {
     private int tryPublishInternal(ArrayList<Object> objs) {
         MessagePassingQueue.Supplier<Object> supplier =
             new MessagePassingQueue.Supplier<Object>() {
-                int i = 0;
+                int counter = 0;
 
                 @Override
                 public Object get() {
-                    return objs.get(i++);
+                    return objs.get(counter++);
                 }
             };
         int count = recvQueue.fill(supplier, objs.size());
-        metrics.notifyArrivals(count);
+        for (JCQueueMetrics jcQueueMetric : jcqMetrics) {
+            jcQueueMetric.notifyArrivals(count);
+        }
         return count;
     }
 
@@ -405,14 +188,15 @@ public class JCQueue implements IStatefulObject {
         return inserter.tryPublish(obj);
     }
 
-    /** Non-blocking call. Bypasses any batching that may be enabled on the recvQueue. Intended for sending flush/metrics tuples */
+    /**
+     * Non-blocking call. Bypasses any batching that may be enabled on the recvQueue. Intended for sending flush/metrics tuples
+     */
     public boolean tryPublishDirect(Object obj) {
         return tryPublishInternal(obj);
     }
 
     /**
-     * Un-batched write to overflowQ. Should only be called by WorkerTransfer
-     * returns false if overflowLimit has reached
+     * Un-batched write to overflowQ. Should only be called by WorkerTransfer returns false if overflowLimit has reached
      */
     public boolean tryPublishToOverflow(Object obj) {
         if (overflowLimit > 0 && overflowQ.size() >= overflowLimit) {
@@ -423,7 +207,9 @@ public class JCQueue implements IStatefulObject {
     }
 
     public void recordMsgDrop() {
-        getMetrics().notifyDroppedMsg();
+        for (JCQueueMetrics jcQueueMetric : jcqMetrics) {
+            jcQueueMetric.notifyDroppedMsg();
+        }
     }
 
     public boolean isEmptyOverflow() {
@@ -439,8 +225,8 @@ public class JCQueue implements IStatefulObject {
     }
 
     /**
-     * if(batchSz>1)  : Blocking call. Does not return until at least 1 element is drained or Thread.interrupt() is received
-     * if(batchSz==1) : NO-OP. Returns immediately. doesnt throw.
+     * if(batchSz>1)  : Blocking call. Does not return until at least 1 element is drained or Thread.interrupt() is received if(batchSz==1)
+     * : NO-OP. Returns immediately. doesnt throw.
      */
     public void flush() throws InterruptedException {
         Inserter inserter = getInserter();
@@ -448,33 +234,177 @@ public class JCQueue implements IStatefulObject {
     }
 
     /**
-     * if(batchSz>1)  : Non-Blocking call. Tries to flush as many as it can. Returns true if flushed at least 1.
-     * if(batchSz==1) : This is a NO-OP. Returns true immediately.
+     * if(batchSz>1)  : Non-Blocking call. Tries to flush as many as it can. Returns true if flushed at least 1. if(batchSz==1) : This is a
+     * NO-OP. Returns true immediately.
      */
-    public boolean tryFlush()  {
+    public boolean tryFlush() {
         Inserter inserter = getInserter();
         return inserter.tryFlush();
     }
 
-    @Override
-    public Object getState() {
-        return metrics.getState();
+    private interface Inserter {
+        // blocking call that can be interrupted using Thread.interrupt()
+        void publish(Object obj) throws InterruptedException;
+
+        boolean tryPublish(Object obj);
+
+        void flush() throws InterruptedException;
+
+        boolean tryFlush();
     }
 
-
-    //This method enables the metrics to be accessed from outside of the JCQueue class
-    public JCQueue.QueueMetrics getMetrics() {
-        return metrics;
-    }
-
-    public interface Consumer extends org.jctools.queues.MessagePassingQueue.Consumer<Object> {
+    public interface Consumer extends MessagePassingQueue.Consumer<Object> {
         void accept(Object event);
 
         void flush() throws InterruptedException;
     }
 
-
     public interface ExitCondition {
         boolean keepRunning();
     }
+
+    /* Thread safe. Same instance can be used across multiple threads */
+    private static class DirectInserter implements Inserter {
+        private JCQueue queue;
+
+        DirectInserter(JCQueue queue) {
+            this.queue = queue;
+        }
+
+        /**
+         * Blocking call, that can be interrupted via Thread.interrupt
+         */
+        @Override
+        public void publish(Object obj) throws InterruptedException {
+            boolean inserted = queue.tryPublishInternal(obj);
+            int idleCount = 0;
+            while (!inserted) {
+                for (JCQueueMetrics jcQueueMetric : queue.jcqMetrics) {
+                    jcQueueMetric.notifyInsertFailure();
+                }
+                if (idleCount == 0) { // check avoids multiple log msgs when in a idle loop
+                    LOG.debug("Experiencing Back Pressure on recvQueue: '{}'. Entering BackPressure Wait",
+                        queue.getQueueName());
+                }
+
+                idleCount = queue.backPressureWaitStrategy.idle(idleCount);
+                if (Thread.interrupted()) {
+                    throw new InterruptedException();
+                }
+                inserted = queue.tryPublishInternal(obj);
+            }
+
+        }
+
+        /**
+         * Non-Blocking call. return value indicates success/failure
+         */
+        @Override
+        public boolean tryPublish(Object obj) {
+            boolean inserted = queue.tryPublishInternal(obj);
+            if (!inserted) {
+                for (JCQueueMetrics jcQueueMetric : queue.jcqMetrics) {
+                    jcQueueMetric.notifyInsertFailure();
+                }
+                return false;
+            }
+            return true;
+        }
+
+        @Override
+        public void flush() throws InterruptedException {
+        }
+
+        @Override
+        public boolean tryFlush() {
+            return true;
+        }
+    } // class DirectInserter
+
+    /* Not thread safe. Have one instance per producer thread or synchronize externally */
+    private static class BatchInserter implements Inserter {
+        private final int batchSz;
+        private JCQueue queue;
+        private ArrayList<Object> currentBatch;
+
+        BatchInserter(JCQueue queue, int batchSz) {
+            this.queue = queue;
+            this.batchSz = batchSz;
+            this.currentBatch = new ArrayList<>(batchSz + 1);
+        }
+
+        /**
+         * Blocking call - retires till element is successfully added.
+         */
+        @Override
+        public void publish(Object obj) throws InterruptedException {
+            currentBatch.add(obj);
+            if (currentBatch.size() >= batchSz) {
+                flush();
+            }
+        }
+
+        /**
+         * Non-Blocking call. return value indicates success/failure
+         */
+        @Override
+        public boolean tryPublish(Object obj) {
+            if (currentBatch.size() >= batchSz) {
+                if (!tryFlush()) {
+                    return false;
+                }
+            }
+            currentBatch.add(obj);
+            return true;
+        }
+
+        /**
+         * Blocking call - Does not return until at least 1 element is drained or Thread.interrupt() is received. Uses backpressure wait
+         * strategy.
+         */
+        @Override
+        public void flush() throws InterruptedException {
+            if (currentBatch.isEmpty()) {
+                return;
+            }
+            int publishCount = queue.tryPublishInternal(currentBatch);
+            int retryCount = 0;
+            while (publishCount == 0) { // retry till at least 1 element is drained
+                for (JCQueueMetrics jcQueueMetric : queue.jcqMetrics) {
+                    jcQueueMetric.notifyInsertFailure();
+                }
+                if (retryCount == 0) { // check avoids multiple log msgs when in a idle loop
+                    LOG.debug("Experiencing Back Pressure when flushing batch to Q: '{}'. Entering BackPressure Wait.",
+                        queue.getQueueName());
+                }
+                retryCount = queue.backPressureWaitStrategy.idle(retryCount);
+                if (Thread.interrupted()) {
+                    throw new InterruptedException();
+                }
+                publishCount = queue.tryPublishInternal(currentBatch);
+            }
+            currentBatch.subList(0, publishCount).clear();
+        }
+
+        /**
+         * Non blocking call. tries to flush as many as possible. Returns true if at least one from non-empty currentBatch was flushed or if
+         * currentBatch is empty. Returns false otherwise
+         */
+        @Override
+        public boolean tryFlush() {
+            if (currentBatch.isEmpty()) {
+                return true;
+            }
+            int publishCount = queue.tryPublishInternal(currentBatch);
+            if (publishCount == 0) {
+                for (JCQueueMetrics jcQueueMetric : queue.jcqMetrics) {
+                    jcQueueMetric.notifyInsertFailure();
+                }
+                return false;
+            } else {
+                currentBatch.subList(0, publishCount).clear();
+                return true;
+            }
+        }
+    } // class BatchInserter
 }

@@ -18,18 +18,16 @@
 
 package org.apache.storm.cluster;
 
-import java.util.List;
 import java.util.Map;
-
 import org.apache.storm.utils.Utils;
-import org.apache.zookeeper.data.ACL;
 
+@SuppressWarnings("checkstyle:AbbreviationAsWordInName")
 public class ZKStateStorageFactory implements StateStorageFactory {
 
     @Override
-    public IStateStorage mkStore(Map<String, Object> config, Map<String, Object> auth_conf, ClusterStateContext context) {
+    public IStateStorage mkStore(Map<String, Object> config, Map<String, Object> authConf, ClusterStateContext context) {
         try {
-            return new ZKStateStorage(config, auth_conf, context);
+            return new ZKStateStorage(config, authConf, context);
         } catch (Exception e) {
             throw Utils.wrapInRuntime(e);
         }

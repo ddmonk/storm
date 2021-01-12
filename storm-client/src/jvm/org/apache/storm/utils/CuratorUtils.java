@@ -18,22 +18,20 @@
 
 package org.apache.storm.utils;
 
-import org.apache.curator.framework.api.ACLProvider;
-import org.apache.storm.Config;
-
-import org.apache.commons.lang.StringUtils;
-import org.apache.curator.ensemble.exhibitor.DefaultExhibitorRestClient;
-import org.apache.curator.ensemble.exhibitor.ExhibitorEnsembleProvider;
-import org.apache.curator.ensemble.exhibitor.Exhibitors;
-import org.apache.curator.framework.CuratorFramework;
-import org.apache.curator.framework.CuratorFrameworkFactory;
-import org.apache.zookeeper.data.ACL;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.apache.storm.Config;
+import org.apache.storm.shade.org.apache.commons.lang.StringUtils;
+import org.apache.storm.shade.org.apache.curator.ensemble.exhibitor.DefaultExhibitorRestClient;
+import org.apache.storm.shade.org.apache.curator.ensemble.exhibitor.ExhibitorEnsembleProvider;
+import org.apache.storm.shade.org.apache.curator.ensemble.exhibitor.Exhibitors;
+import org.apache.storm.shade.org.apache.curator.framework.CuratorFramework;
+import org.apache.storm.shade.org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.storm.shade.org.apache.curator.framework.api.ACLProvider;
+import org.apache.storm.shade.org.apache.zookeeper.data.ACL;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class CuratorUtils {
     public static final Logger LOG = LoggerFactory.getLogger(CuratorUtils.class);
@@ -75,36 +73,38 @@ public class CuratorUtils {
         return builder.build();
     }
 
-    protected static void setupBuilder(CuratorFrameworkFactory.Builder builder, final String zkStr, Map<String, Object> conf, ZookeeperAuthInfo auth)
-    {
+    protected static void setupBuilder(CuratorFrameworkFactory.Builder builder, final String zkStr, Map<String, Object> conf,
+                                       ZookeeperAuthInfo auth) {
         List<String> exhibitorServers = ObjectReader.getStrings(conf.get(Config.STORM_EXHIBITOR_SERVERS));
         if (!exhibitorServers.isEmpty()) {
             // use exhibitor servers
             builder.ensembleProvider(new ExhibitorEnsembleProvider(
-                new Exhibitors(exhibitorServers, ObjectReader.getInt(conf.get(Config.STORM_EXHIBITOR_PORT)),
-                    new Exhibitors.BackupConnectionStringProvider() {
-                        @Override
-                        public String getBackupConnectionString() throws Exception {
-                            // use zk servers as backup if they exist
-                            return zkStr;
-                        }}),
+                new Exhibitors(exhibitorServers,
+                        ObjectReader.getInt(conf.get(Config.STORM_EXHIBITOR_PORT)),
+                        new Exhibitors.BackupConnectionStringProvider() {
+                            @Override
+                            public String getBackupConnectionString() throws Exception {
+                                // use zk servers as backup if they exist
+                                return zkStr;
+                            }
+                        }),
                 new DefaultExhibitorRestClient(),
                 ObjectReader.getString(conf.get(Config.STORM_EXHIBITOR_URIPATH)),
                 ObjectReader.getInt(conf.get(Config.STORM_EXHIBITOR_POLL)),
                 new StormBoundedExponentialBackoffRetry(
-                    ObjectReader.getInt(conf.get(Config.STORM_EXHIBITOR_RETRY_INTERVAL)),
-                    ObjectReader.getInt(conf.get(Config.STORM_EXHIBITOR_RETRY_INTERVAL_CEILING)),
-                    ObjectReader.getInt(conf.get(Config.STORM_EXHIBITOR_RETRY_TIMES)))));
+                        ObjectReader.getInt(conf.get(Config.STORM_EXHIBITOR_RETRY_INTERVAL)),
+                        ObjectReader.getInt(conf.get(Config.STORM_EXHIBITOR_RETRY_INTERVAL_CEILING)),
+                        ObjectReader.getInt(conf.get(Config.STORM_EXHIBITOR_RETRY_TIMES)))));
         } else {
             builder.connectString(zkStr);
         }
         builder
-            .connectionTimeoutMs(ObjectReader.getInt(conf.get(Config.STORM_ZOOKEEPER_CONNECTION_TIMEOUT)))
-            .sessionTimeoutMs(ObjectReader.getInt(conf.get(Config.STORM_ZOOKEEPER_SESSION_TIMEOUT)))
-            .retryPolicy(new StormBoundedExponentialBackoffRetry(
-                    ObjectReader.getInt(conf.get(Config.STORM_ZOOKEEPER_RETRY_INTERVAL)),
-                    ObjectReader.getInt(conf.get(Config.STORM_ZOOKEEPER_RETRY_INTERVAL_CEILING)),
-                    ObjectReader.getInt(conf.get(Config.STORM_ZOOKEEPER_RETRY_TIMES))));
+                .connectionTimeoutMs(ObjectReader.getInt(conf.get(Config.STORM_ZOOKEEPER_CONNECTION_TIMEOUT)))
+                .sessionTimeoutMs(ObjectReader.getInt(conf.get(Config.STORM_ZOOKEEPER_SESSION_TIMEOUT)))
+                .retryPolicy(new StormBoundedExponentialBackoffRetry(
+                        ObjectReader.getInt(conf.get(Config.STORM_ZOOKEEPER_RETRY_INTERVAL)),
+                        ObjectReader.getInt(conf.get(Config.STORM_ZOOKEEPER_RETRY_INTERVAL_CEILING)),
+                        ObjectReader.getInt(conf.get(Config.STORM_ZOOKEEPER_RETRY_TIMES))));
 
         if (auth != null && auth.scheme != null && auth.payload != null) {
             builder.authorization(auth.scheme, auth.payload);
@@ -112,8 +112,7 @@ public class CuratorUtils {
     }
 
     public static void testSetupBuilder(CuratorFrameworkFactory.Builder
-                                                builder, String zkStr, Map<String, Object> conf, ZookeeperAuthInfo auth)
-    {
+                                            builder, String zkStr, Map<String, Object> conf, ZookeeperAuthInfo auth) {
         setupBuilder(builder, zkStr, conf, auth);
     }
 

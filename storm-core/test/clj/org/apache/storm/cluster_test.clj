@@ -17,10 +17,10 @@
   (:import [java.util Arrays]
            [org.apache.storm.nimbus NimbusInfo])
   (:import [org.apache.storm.generated SupervisorInfo StormBase Assignment NimbusSummary TopologyStatus NodeInfo Credentials])
-  (:import [org.apache.zookeeper ZooDefs ZooDefs$Ids Watcher$Event$EventType])
+  (:import [org.apache.storm.shade.org.apache.zookeeper ZooDefs ZooDefs$Ids Watcher$Event$EventType])
   (:import [org.mockito Mockito])
   (:import [org.mockito.exceptions.base MockitoAssertionError])
-  (:import [org.apache.curator.framework CuratorFramework CuratorFrameworkFactory CuratorFrameworkFactory$Builder])
+  (:import [org.apache.storm.shade.org.apache.curator.framework CuratorFramework CuratorFrameworkFactory CuratorFrameworkFactory$Builder])
   (:import [org.apache.storm.utils Time Time$SimulatedTime ZookeeperAuthInfo ConfigUtils Utils CuratorUtils])
   (:import [org.apache.storm.cluster IStateStorage ZKStateStorage ClusterStateContext StormClusterStateImpl ClusterUtils])
   (:import [org.apache.storm.zookeeper Zookeeper ClientZookeeper])
@@ -30,8 +30,7 @@
   (:require [conjure.core])
   (:use [conjure core])
   (:use [clojure test])
-  (:use [org.apache.storm config util log])
-  (:use [org.apache.storm.internal thrift]))
+  (:use [org.apache.storm config util log]))
 
 (defn mk-config [zk-port]
   (merge (clojurify-structure (ConfigUtils/readStormConfig))
@@ -234,10 +233,10 @@
       (is (= {"b" "b"} (.get_creds (.credentials state "storm1" nil))))
 
       (is (= [] (.blobstoreInfo state "")))
-      (.setupBlobstore state "key1" nimbusInfo1 (Integer/parseInt "1"))
+      (.setupBlob state "key1" nimbusInfo1 (Integer/parseInt "1"))
       (is (= ["key1"] (.blobstoreInfo state "")))
       (is (= [(str (.toHostPortString nimbusInfo1) "-1")] (.blobstoreInfo state "key1")))
-      (.setupBlobstore state "key1" nimbusInfo2 (Integer/parseInt "1"))
+      (.setupBlob state "key1" nimbusInfo2 (Integer/parseInt "1"))
       (is (= #{(str (.toHostPortString nimbusInfo1) "-1")
                (str (.toHostPortString nimbusInfo2) "-1")} (set (.blobstoreInfo state "key1"))))
       (.removeBlobstoreKey state "key1")

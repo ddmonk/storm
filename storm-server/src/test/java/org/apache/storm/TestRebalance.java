@@ -1,44 +1,39 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  * <p>
  * http://www.apache.org/licenses/LICENSE-2.0
  * <p>
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 
 package org.apache.storm;
 
+import java.util.HashMap;
+import java.util.Map;
+import org.apache.storm.generated.AuthorizationException;
 import org.apache.storm.generated.ClusterSummary;
 import org.apache.storm.generated.RebalanceOptions;
+import org.apache.storm.generated.NotAliveException;
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.generated.TopologySummary;
 import org.apache.storm.scheduler.resource.ResourceAwareScheduler;
 import org.apache.storm.scheduler.resource.TestUtilsForResourceAwareScheduler;
 import org.apache.storm.scheduler.resource.strategies.priority.DefaultSchedulingPriorityStrategy;
 import org.apache.storm.scheduler.resource.strategies.scheduling.DefaultResourceAwareStrategy;
+import org.apache.storm.thrift.TException;
 import org.apache.storm.topology.BoltDeclarer;
 import org.apache.storm.topology.SpoutDeclarer;
 import org.apache.storm.topology.TopologyBuilder;
 import org.apache.storm.utils.Utils;
-import org.apache.thrift.TException;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.HashMap;
-import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -49,6 +44,20 @@ public class TestRebalance {
 
     private static final Logger LOG = LoggerFactory.getLogger(TestRebalance.class);
 
+    public static String topoNameToId(String topoName, ILocalCluster cluster) throws TException {
+        try {
+            TopologySummary topoSum = cluster.getTopologySummaryByName(topoName);
+            return topoSum.get_id();
+        } catch (NotAliveException e) {
+            LOG.error("Failed to getTopologySummaryByName from " + topoName, e);
+        }
+        return null;
+    }
+
+    protected Class getDefaultResourceAwareStrategyClass() {
+        return DefaultResourceAwareStrategy.class;
+    }
+
     @Test
     public void testRebalanceTopologyResourcesAndConfigs()
         throws Exception {
@@ -58,7 +67,7 @@ public class TestRebalance {
         Config conf = new Config();
         conf.put(DaemonConfig.STORM_SCHEDULER, ResourceAwareScheduler.class.getName());
         conf.put(DaemonConfig.RESOURCE_AWARE_SCHEDULER_PRIORITY_STRATEGY, DefaultSchedulingPriorityStrategy.class.getName());
-        conf.put(Config.TOPOLOGY_SCHEDULER_STRATEGY, DefaultResourceAwareStrategy.class.getName());
+        conf.put(Config.TOPOLOGY_SCHEDULER_STRATEGY, getDefaultResourceAwareStrategyClass().getName());
         conf.put(Config.TOPOLOGY_COMPONENT_CPU_PCORE_PERCENT, 10.0);
         conf.put(Config.TOPOLOGY_COMPONENT_RESOURCES_OFFHEAP_MEMORY_MB, 10.0);
         conf.put(Config.TOPOLOGY_COMPONENT_RESOURCES_ONHEAP_MEMORY_MB, 100.0);
@@ -71,11 +80,11 @@ public class TestRebalance {
 
             TopologyBuilder builder = new TopologyBuilder();
             SpoutDeclarer s1 = builder.setSpout("spout-1", new TestUtilsForResourceAwareScheduler.TestSpout(),
-                2);
+                                                2);
             BoltDeclarer b1 = builder.setBolt("bolt-1", new TestUtilsForResourceAwareScheduler.TestBolt(),
-                2).shuffleGrouping("spout-1");
+                                              2).shuffleGrouping("spout-1");
             BoltDeclarer b2 = builder.setBolt("bolt-2", new TestUtilsForResourceAwareScheduler.TestBolt(),
-                2).shuffleGrouping("bolt-1");
+                                              2).shuffleGrouping("bolt-1");
 
             StormTopology stormTopology = builder.createTopology();
 
@@ -149,15 +158,11 @@ public class TestRebalance {
 
     public boolean checkTopologyScheduled(String topoName, ILocalCluster cluster) throws TException {
         if (checkTopologyUp(topoName, cluster)) {
-            ClusterSummary sum = cluster.getClusterInfo();
-            for (TopologySummary topoSum : sum.get_topologies()) {
-                if (topoSum.get_name().equals(topoName)) {
-                    String status = topoSum.get_status();
-                    String sched_status = topoSum.get_sched_status();
-                    if (status.equals("ACTIVE") && (sched_status != null && !sched_status.equals(""))) {
-                        return true;
-                    }
-                }
+            TopologySummary topoSum = cluster.getTopologySummaryByName(topoName);
+            String status = topoSum.get_status();
+            String sched_status = topoSum.get_sched_status();
+            if (status.equals("ACTIVE") && (sched_status != null && !sched_status.equals(""))) {
+                return true;
             }
         }
         return false;
@@ -165,21 +170,10 @@ public class TestRebalance {
 
     public boolean checkTopologyUp(String topoName, ILocalCluster cluster) throws TException {
         ClusterSummary sum = cluster.getClusterInfo();
-
-        for (TopologySummary topoSum : sum.get_topologies()) {
-            if (topoSum.get_name().equals(topoName)) {
+        TopologySummary topoSum = cluster.getTopologySummaryByName(topoName);
+            if (topoSum != null) {
                 return true;
             }
-        }
         return false;
-    }
-
-    public static String topoNameToId(String topoName, ILocalCluster cluster) throws TException {
-        for (TopologySummary topoSum : cluster.getClusterInfo().get_topologies()) {
-            if (topoSum.get_name().equals(topoName)) {
-                return topoSum.get_id();
-            }
-        }
-        return null;
     }
 }

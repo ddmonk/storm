@@ -1,19 +1,13 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 
 package org.apache.storm.scheduler.utils;
@@ -35,9 +29,7 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
-import org.apache.storm.Config;
 import org.apache.storm.DaemonConfig;
-import org.apache.storm.utils.ConfigUtils;
 import org.apache.storm.utils.ServerConfigUtils;
 import org.apache.storm.utils.Time;
 import org.apache.storm.utils.Utils;
@@ -52,6 +44,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
  * A dynamic loader that can load scheduler configurations for user resource guarantees from Artifactory (an artifact repository manager).
+ * This is not thread-safe.
  */
 public class ArtifactoryConfigLoader implements IConfigLoader {
     protected static final String LOCAL_ARTIFACT_DIR = "scheduler_artifacts";
@@ -72,7 +65,7 @@ public class ArtifactoryConfigLoader implements IConfigLoader {
     private int lastReturnedTime = 0;
     private int timeoutSeconds = DEFAULT_TIMEOUT_SECS;
     private Map<String, Object> lastReturnedValue;
-    private URI targetURI = null;
+    private URI targetUri = null;
     private JSONParser jsonParser;
     private String scheme;
 
@@ -84,7 +77,7 @@ public class ArtifactoryConfigLoader implements IConfigLoader {
         }
         Integer thisPollTime = (Integer) conf.get(DaemonConfig.SCHEDULER_CONFIG_LOADER_POLLTIME_SECS);
         if (thisPollTime != null) {
-            artifactoryPollTimeSecs =thisPollTime;
+            artifactoryPollTimeSecs = thisPollTime;
         }
         String thisBase = (String) conf.get(DaemonConfig.SCHEDULER_CONFIG_LOADER_ARTIFACTORY_BASE_DIRECTORY);
         if (thisBase != null) {
@@ -95,9 +88,9 @@ public class ArtifactoryConfigLoader implements IConfigLoader {
             LOG.error("No URI defined in {} configuration.", DaemonConfig.SCHEDULER_CONFIG_LOADER_URI);
         } else {
             try {
-                targetURI = new URI(uriString);
-                scheme = targetURI.getScheme().substring(ARTIFACTORY_SCHEME_PREFIX.length());
-            } catch(URISyntaxException e) {
+                targetUri = new URI(uriString);
+                scheme = targetUri.getScheme().substring(ARTIFACTORY_SCHEME_PREFIX.length());
+            } catch (URISyntaxException e) {
                 LOG.error("Failed to parse uri={}", uriString);
             }
         }
@@ -111,7 +104,7 @@ public class ArtifactoryConfigLoader implements IConfigLoader {
      */
     @Override
     public Map<String, Object> load(String configKey) {
-        if (targetURI == null) {
+        if (targetUri == null) {
             return null;
         }
 
@@ -119,65 +112,30 @@ public class ArtifactoryConfigLoader implements IConfigLoader {
         int currentTimeSecs = Time.currentTimeSecs();
         if (lastReturnedValue != null && ((currentTimeSecs - lastReturnedTime) < artifactoryPollTimeSecs)) {
             LOG.debug("currentTimeSecs: {}; lastReturnedTime {}; artifactoryPollTimeSecs: {}. Returning our last map.",
-                    currentTimeSecs, lastReturnedTime, artifactoryPollTimeSecs);
+                      currentTimeSecs, lastReturnedTime, artifactoryPollTimeSecs);
             return (Map<String, Object>) lastReturnedValue.get(configKey);
         }
 
         try {
-            Map<String, Object> raw = loadFromURI(targetURI);
+            Map<String, Object> raw = loadFromUri(targetUri);
             if (raw != null) {
                 return (Map<String, Object>) raw.get(configKey);
             }
         } catch (Exception e) {
-            LOG.error("Failed to load from uri {}", targetURI);
+            LOG.error("Failed to load from uri {}", targetUri);
         }
         return null;
     }
 
-
     /**
-     * A private class used to check the response coming back from httpclient.
-     */
-    private static class GETStringResponseHandler implements ResponseHandler<String> {
-        private static GETStringResponseHandler singleton = null;
-
-        /**
-         * @return a singleton httpclient GET response handler
-         */
-        public static GETStringResponseHandler getInstance() {
-            if (singleton == null) {
-                singleton = new GETStringResponseHandler();
-            }
-            return singleton;
-        }
-
-        /**
-         * @param response The http response to verify.
-         * @return null on failure or the response string if return code is in 200 range
-         */
-        @Override
-        public String handleResponse(final HttpResponse response) throws IOException {
-            int status = response.getStatusLine().getStatusCode();
-            HttpEntity entity = response.getEntity();
-            String entityString = (entity != null ? EntityUtils.toString(entity) : null);
-            if (status >= 200 && status < 300) {
-                return entityString;
-            } else {
-                LOG.error("Got unexpected response code {}; entity: {}", status, entityString);
-                return null;
-            }
-        }
-    }
-
-    /**
+     * Protected so we can override this in unit tests.
+     *
      * @param api null if we are trying to download artifact, otherwise a string to call REST api,
      *        e.g. "/api/storage"
      * @param artifact location of artifact
      * @param host Artifactory hostname
      * @param port Artifactory port
      * @return null on failure or the response string if return code is in 200 range
-     *
-     * <p>Protected so we can override this in unit tests
      */
     protected String doGet(String api, String artifact, String host, Integer port) {
         URIBuilder builder = new URIBuilder().setScheme(scheme).setHost(host).setPort(port);
@@ -201,7 +159,7 @@ public class ArtifactoryConfigLoader implements IConfigLoader {
             LOG.debug("About to issue a GET to {}", builder);
             HttpGet httpget = new HttpGet(builder.build());
             String responseBody;
-            responseBody = httpclient.execute(httpget, GETStringResponseHandler.getInstance());
+            responseBody = httpclient.execute(httpget, GetStringResponseHandler.getInstance());
             returnValue = responseBody;
         } catch (Exception e) {
             LOG.error("Received exception while connecting to Artifactory", e);
@@ -232,13 +190,6 @@ public class ArtifactoryConfigLoader implements IConfigLoader {
         return returnValue;
     }
 
-    private class DirEntryCompare implements Comparator<JSONObject> {
-        @Override
-        public int compare(JSONObject o1, JSONObject o2) {
-            return ((String)o1.get("uri")).compareTo((String)o2.get("uri"));
-        }
-    }
-
     private String loadMostRecentArtifact(String location, String host, Integer port) {
         // Is this a directory or is it a file?
         JSONObject json = getArtifactMetadata(location, host, port);
@@ -246,17 +197,17 @@ public class ArtifactoryConfigLoader implements IConfigLoader {
             LOG.error("got null metadata");
             return null;
         }
-        String downloadURI = (String) json.get("downloadUri");
+        String downloadUri = (String) json.get("downloadUri");
 
         // This means we are pointing at a file.
-        if (downloadURI != null) {
+        if (downloadUri != null) {
             // Then get it and return the file as string.
             String returnValue = doGet(null, location, host, port);
             saveInArtifactoryCache(returnValue);
             return returnValue;
         }
 
-        // This should mean that we were pointed at a directory.  
+        // This should mean that we were pointed at a directory.
         // Find the most recent child and load that.
         JSONArray msg = (JSONArray) json.get("children");
         if (msg == null || msg.size() == 0) {
@@ -336,19 +287,19 @@ public class ArtifactoryConfigLoader implements IConfigLoader {
         // First make the cache dir
         String localDirName = ServerConfigUtils.masterLocalDir(conf) + File.separator + LOCAL_ARTIFACT_DIR;
         File dir = new File(localDirName);
-        if (! dir.exists()) {
+        if (!dir.exists()) {
             dir.mkdirs();
         }
 
         localCacheDir = localDirName + File.separator + location.replaceAll(File.separator, "_");
         dir = new File(localCacheDir);
-        if (! dir.exists()) {
+        if (!dir.exists()) {
             dir.mkdir();
         }
         cacheInitialized = true;
     }
 
-    private Map<String, Object> loadFromURI(URI uri) throws IOException {
+    private Map<String, Object> loadFromUri(URI uri) throws IOException {
         String host = uri.getHost();
         Integer port = uri.getPort();
         String location = uri.getPath();
@@ -387,5 +338,49 @@ public class ArtifactoryConfigLoader implements IConfigLoader {
         }
 
         return null;
+    }
+
+    /**
+     * A private class used to check the response coming back from httpclient.
+     */
+    private static class GetStringResponseHandler implements ResponseHandler<String> {
+        private static GetStringResponseHandler singleton = null;
+
+        /**
+         * Get instance.
+         * @return a singleton httpclient GET response handler
+         */
+        public static GetStringResponseHandler getInstance() {
+            if (singleton == null) {
+                singleton = new GetStringResponseHandler();
+            }
+            return singleton;
+        }
+
+        /**
+         * Handle response.
+         * @param response The http response to verify.
+         * @return null on failure or the response string if return code is in 200 range
+         */
+        @Override
+        public String handleResponse(final HttpResponse response) throws IOException {
+            int status = response.getStatusLine().getStatusCode();
+            HttpEntity entity = response.getEntity();
+            String entityString = (entity != null ? EntityUtils.toString(entity) : null);
+            if (status >= 200 && status < 300) {
+                return entityString;
+            } else {
+                LOG.error("Got unexpected response code {}; entity: {}", status, entityString);
+                return null;
+            }
+        }
+    }
+
+    private class DirEntryCompare implements Comparator<JSONObject> {
+
+        @Override
+        public int compare(JSONObject o1, JSONObject o2) {
+            return ((String) o1.get("uri")).compareTo((String) o2.get("uri"));
+        }
     }
 }
