@@ -15,8 +15,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.storm.redis.common.container;
 
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.storm.redis.common.config.JedisClusterConfig;
 import org.apache.storm.redis.common.config.JedisPoolConfig;
 import redis.clients.jedis.JedisCluster;
@@ -27,27 +29,33 @@ import redis.clients.jedis.JedisPool;
  */
 public class RedisCommandsContainerBuilder {
 
-    // FIXME: We're using default config since it cannot be serialized
-    // We still needs to provide some options externally
-    public static final redis.clients.jedis.JedisPoolConfig DEFAULT_POOL_CONFIG = new redis.clients.jedis.JedisPoolConfig();
-
     /**
      * Builds container for single Redis environment.
+     *
      * @param config configuration for JedisPool
      * @return container for single Redis environment
      */
     public static RedisCommandsInstanceContainer build(JedisPoolConfig config) {
-        JedisPool jedisPool = new JedisPool(DEFAULT_POOL_CONFIG, config.getHost(), config.getPort(), config.getTimeout(), config.getPassword(), config.getDatabase());
+        // FIXME: We're using default config since it cannot be serialized
+        // We still needs to provide some options externally
+        JedisPool jedisPool =
+            new JedisPool(new redis.clients.jedis.JedisPoolConfig(), config.getHost(), config.getPort(),
+                    config.getTimeout(), config.getPassword(),
+                          config.getDatabase());
         return new RedisContainer(jedisPool);
     }
 
     /**
      * Builds container for Redis Cluster environment.
+     *
      * @param config configuration for JedisCluster
      * @return container for Redis Cluster environment
      */
     public static RedisCommandsInstanceContainer build(JedisClusterConfig config) {
-        JedisCluster jedisCluster = new JedisCluster(config.getNodes(), config.getTimeout(), config.getMaxRedirections(), DEFAULT_POOL_CONFIG);
+        // FIXME: We're using default config since it cannot be serialized
+        // We still needs to provide some options externally
+        JedisCluster jedisCluster =
+            new JedisCluster(config.getNodes(), config.getTimeout(), config.getMaxRedirections(), new GenericObjectPoolConfig<>());
         return new RedisClusterContainer(jedisCluster);
     }
 }

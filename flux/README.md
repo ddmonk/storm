@@ -17,36 +17,7 @@ order to change configuration.
 Flux is a framework and set of utilities that make defining and deploying Apache Storm topologies less painful and
 deveoper-intensive.
 
-Have you ever found yourself repeating this pattern?:
-
-```java
-
-public static void main(String[] args) throws Exception {
-    // logic to determine if we're running locally or not...
-    // create necessary config options...
-    boolean runLocal = shouldRunLocal();
-    if(runLocal){
-        LocalCluster cluster = new LocalCluster();
-        cluster.submitTopology(name, conf, topology);
-    } else {
-        StormSubmitter.submitTopology(name, conf, topology);
-    }
-}
-```
-
-Wouldn't something like this be easier:
-
-```bash
-storm jar mytopology.jar org.apache.storm.flux.Flux --local config.yaml
-```
-
-or:
-
-```bash
-storm jar mytopology.jar org.apache.storm.flux.Flux --remote config.yaml
-```
-
-Another pain point often mentioned is the fact that the wiring for a Topology graph is often tied up in Java code,
+A Major pain point often mentioned is the fact that the wiring for a Topology graph is often tied up in Java code,
 and that any changes require recompilation and repackaging of the topology jar file. Flux aims to alleviate that
 pain by allowing you to package all your Storm components in a single jar, and use an external text file to define
 the layout and configuration of your topologies.
@@ -57,7 +28,7 @@ the layout and configuration of your topologies.
    in your topology code
  * Support for existing topology code (see below)
  * Define Storm Core API (Spouts/Bolts) using a flexible YAML DSL
- * YAML DSL support for most Storm components (storm-kafka-client, storm-hdfs, storm-hbase, etc.)
+ * YAML DSL support for most Storm components (storm-kafka-client, storm-hdfs, etc.)
  * Convenient support for multi-lang components
  * External property substitution/filtering for easily switching between configurations/environments (similar to Maven-style
    `${variable.name}` substitution)
@@ -73,7 +44,7 @@ The easiest way to use Flux, is to add it as a Maven dependency in you project a
 If you would like to build Flux from source and run the unit/integration tests, you will need the following installed
 on your system:
 
-* Python 2.6.x or later
+* Python 3.0.x or later
 * Node.js 0.10.x or later
 
 #### Building with unit tests enabled:
@@ -202,13 +173,13 @@ The example below illustrates Flux usage with the Maven shade plugin:
  ```
 
 ### Deploying and Running a Flux Topology
-Once your topology components are packaged with the Flux dependency, you can run different topologies either locally
-or remotely using the `storm jar` command. For example, if your fat jar is named `myTopology-0.1.0-SNAPSHOT.jar` you
+Once your topology components are packaged with the Flux dependency, you can run different topologies either locally using the `storm local` command
+or remotely using `storm jar`. For example, if your fat jar is named `myTopology-0.1.0-SNAPSHOT.jar` you
 could run it locally with the command:
 
 
 ```bash
-storm jar myTopology-0.1.0-SNAPSHOT.jar org.apache.storm.flux.Flux --local my_config.yaml
+storm local myTopology-0.1.0-SNAPSHOT.jar org.apache.storm.flux.Flux my_config.yaml
 
 ```
 
@@ -228,20 +199,22 @@ usage: storm jar <my_topology_uber_jar.jar> org.apache.storm.flux.Flux
                               and replace keys identified with {$[property
                               name]} with the value defined in the
                               properties file.
+ -h,--help                    Print this help message
  -i,--inactive                Deploy the topology, but do not activate it.
- -l,--local                   Run the topology in local mode.
+ -l,--local                   Ignored: to run in local mode use `storm
+                              local` instead of `storm jar`
  -n,--no-splash               Suppress the printing of the splash screen.
  -q,--no-detail               Suppress the printing of topology details.
- -r,--remote                  Deploy the topology to a remote cluster.
+ -r,--remote                  Ignored: to run on a remote cluster launch
+                              using `storm jar` to run in a local cluster
+                              use `storm local`
  -R,--resource                Treat the supplied path as a classpath
                               resource instead of a file.
- -s,--sleep <ms>              When running locally, the amount of time to
-                              sleep (in ms.) before killing the topology
-                              and shutting down the local cluster.
- -z,--zookeeper <host:port>   When running in local mode, use the
-                              ZooKeeper at the specified <host>:<port>
-                              instead of the in-process ZooKeeper.
-                              (requires Storm 0.9.3 or later)
+ -s,--sleep <ms>              Ignored: to set cluster run time use
+                              `--local-ttl` with `storm local` instead.
+ -z,--zookeeper <host:port>   Ignored, if you want to set the zookeeper
+                              host/port in local mode use
+                              `--local-zookeeper` instead
 ```
 
 **NOTE:** Flux tries to avoid command line switch collision with the `storm` command, and allows any other command line
@@ -251,7 +224,7 @@ For example, you can use the `storm` command switch `-c` to override a topology 
 example command will run Flux and override the `nimus.host` configuration:
 
 ```bash
-storm jar myTopology-0.1.0-SNAPSHOT.jar org.apache.storm.flux.Flux --remote my_config.yaml -c nimbus.host=localhost
+storm jar myTopology-0.1.0-SNAPSHOT.jar org.apache.storm.flux.Flux my_config.yaml -c nimbus.host=localhost
 ```
 
 ### Sample output
@@ -279,7 +252,6 @@ sentence-spout --SHUFFLE--> splitsentence
 splitsentence --FIELDS--> count
 count --SHUFFLE--> log
 --------------------------------------
-Submitting topology: 'shell-topology' to remote cluster...
 ```
 
 ## YAML Configuration
@@ -602,6 +574,17 @@ component when the topology is deployed.
 Because spout and bolt definitions extend `component` they support constructor arguments, references, and properties as
 well.
 
+In addition to `parallelism`, spout and bolt definitions support the following optional parameters that map directly to
+the underlying Storm `BoltDeclarer`/`SpoutDeclarer`:
+
+| Parameter           | Description                                                                              |
+|---------------------|------------------------------------------------------------------------------------------|
+| `numTasks`          | The number of tasks for the component (`setNumTasks`).                                    |
+| `onHeapMemoryLoad`  | The on-heap memory load, in MB, for resource-aware scheduling (`setMemoryLoad`).         |
+| `offHeapMemoryLoad` | The off-heap memory load, in MB, for resource-aware scheduling (`setMemoryLoad`).        |
+| `cpuLoad`           | The CPU load for resource-aware scheduling (`setCPULoad`).                                |
+| `config`            | A map of configuration parameters applied only to this component (`addConfigurations`).  |
+
 Shell spout example:
 
 ```yaml
@@ -668,7 +651,7 @@ bolts:
     className: "org.apache.storm.flux.wrappers.bolts.FluxShellBolt"
     constructorArgs:
       # command line
-      - ["python", "splitsentence.py"]
+      - ["python3", "splitsentence.py"]
       # output fields
       - ["word"]
     parallelism: 1
@@ -684,6 +667,35 @@ bolts:
     parallelism: 1
     # ...
 ```
+
+### Per-Component Configuration
+In addition to the topology-wide [Topology Config](#topology-config), each spout and bolt can declare its own `config`
+map. These configurations are applied to that component only, via the declarer's `addConfigurations(...)` method,
+following Storm's native support for component-level configuration. This avoids enabling a configuration topology-wide
+when only a single component requires it.
+
+```yaml
+spouts:
+  - id: "sentence-spout"
+    className: "org.apache.storm.flux.wrappers.spouts.FluxShellSpout"
+    parallelism: 1
+    # configuration applied to this spout only
+    config:
+      topology.max.spout.pending: 1000
+
+bolts:
+  - id: "log"
+    className: "org.apache.storm.flux.wrappers.bolts.LogInfoBolt"
+    parallelism: 1
+    # configuration applied to this bolt only
+    config:
+      topology.tuple.compression.enable: true
+```
+
+Known Storm configuration keys are validated when the topology is built, so an invalid value (for example, a
+non-boolean value for `topology.tuple.compression.enable`) fails fast rather than at submission time. Unknown/custom
+keys are not validated and are passed through verbatim; validation runs client-side at build time.
+
 ## Streams and Stream Groupings
 Streams in Flux are represented as a list of connections (Graph edges, data flow, etc.) between the Spouts and Bolts in
 a topology, with an associated Grouping definition.
@@ -815,7 +827,7 @@ bolts:
     className: "org.apache.storm.flux.wrappers.bolts.FluxShellBolt"
     constructorArgs:
       # command line
-      - ["python", "splitsentence.py"]
+      - ["python3", "splitsentence.py"]
       # output fields
       - ["word"]
     parallelism: 1

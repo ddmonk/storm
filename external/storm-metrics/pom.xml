@@ -18,16 +18,18 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <parent>
-      <artifactId>storm</artifactId>
+      <artifactId>storm-external</artifactId>
       <groupId>org.apache.storm</groupId>
-      <version>2.0.0-SNAPSHOT</version>
-      <relativePath>../../pom.xml</relativePath>
+      <version>3.1.1-SNAPSHOT</version>
+      <relativePath>../pom.xml</relativePath>
   </parent>
 
   <artifactId>storm-metrics</artifactId>
+
+
+  <name>Storm Metrics</name>
   <packaging>jar</packaging>
 
-  <name>storm-metrics</name>
 
   <properties>
     <!-- settings for downloading the sigar native binary complete archive, which is not available in Maven central-->
@@ -68,32 +70,28 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-antrun-plugin</artifactId>
-        <version>1.6</version>
         <executions>
           <execution>
             <id>prepare</id>
             <phase>validate</phase>
             <configuration>
-              <tasks>
-                <echo message="Downloading sigar native binaries..."/>
-                <get src="${sigar.download.url}"
-                     dest="${sigar.download.path}/" skipExisting="true"/>
-                <checksum file="${sigar.download.path}/hyperic-sigar-${sigar.version}.zip" algorithm="SHA1"
-                          property="${sigar.SHA1}" verifyProperty="validChecksum"/>
+              <target>
+                <echo message="Downloading sigar native binaries..." />
+                <get src="${sigar.download.url}" dest="${sigar.download.path}/" skipExisting="true" />
+                <checksum file="${sigar.download.path}/hyperic-sigar-${sigar.version}.zip" algorithm="SHA1" property="${sigar.SHA1}" verifyProperty="validChecksum" />
                 <fail message="Checksum validation failed for hyperic-sigar-${sigar.version}.zip">
                   <condition>
-                    <isfalse value="${validChecksum}"/>
+                    <isfalse value="${validChecksum}" />
                   </condition>
                 </fail>
-                <unzip src="${sigar.download.path}/hyperic-sigar-${sigar.version}.zip"
-                       dest="${project.build.directory}/classes/resources">
+                <unzip src="${sigar.download.path}/hyperic-sigar-${sigar.version}.zip" dest="${project.build.directory}/classes/resources">
                   <patternset>
-                    <include name="**/lib/libsigar-*"/>
-                    <include name="**/lib/sigar-*"/>
+                    <include name="**/lib/libsigar-*" />
+                    <include name="**/lib/sigar-*" />
                   </patternset>
-                  <mapper type="flatten"/>
+                  <mapper type="flatten" />
                 </unzip>
-              </tasks>
+              </target>
             </configuration>
             <goals>
               <goal>run</goal>
@@ -102,12 +100,23 @@
         </executions>
       </plugin>
       <plugin>
+          <groupId>org.openrewrite.maven</groupId>
+          <artifactId>rewrite-maven-plugin</artifactId>
+          <!--Note - the version/config would be inherited-->
+      </plugin>
+      <plugin>
+          <groupId>org.codehaus.gmavenplus</groupId>
+          <artifactId>gmavenplus-plugin</artifactId>
+          <!--Note - the version/config would be inherited-->
+      </plugin>
+      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-checkstyle-plugin</artifactId>
         <!--Note - the version would be inherited-->
-        <configuration>
-          <maxAllowedViolations>32</maxAllowedViolations>
-        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
       </plugin>
     </plugins>
   </build>

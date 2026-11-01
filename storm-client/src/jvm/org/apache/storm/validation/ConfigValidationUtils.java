@@ -1,66 +1,28 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 
 package org.apache.storm.validation;
 
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.Map;
 
 public class ConfigValidationUtils {
     private static final Logger LOG = LoggerFactory.getLogger(ConfigValidationUtils.class);
 
     /**
-     * Declares methods for validating configuration values.
-     */
-    public static interface FieldValidator {
-        /**
-         * Validates the given field.
-         * @param name the name of the field.
-         * @param field The field to be validated.
-         * @throws IllegalArgumentException if the field fails validation.
-         */
-        public void validateField(String name, Object field) throws IllegalArgumentException;
-    }
-
-    /**
-     * Declares a method for validating configuration values that is nestable.
-     */
-    public static abstract class NestableFieldValidator implements FieldValidator {
-        @Override
-        public void validateField(String name, Object field) throws IllegalArgumentException {
-            validateField(null, name, field);
-        }
-
-        /**
-         * Validates the given field.
-         * @param pd describes the parent wrapping this validator.
-         * @param name the name of the field.
-         * @param field The field to be validated.
-         * @throws IllegalArgumentException if the field fails validation.
-         */
-        public abstract void validateField(String pd, String name, Object field) throws IllegalArgumentException;
-    }
-
-    /**
      * Returns a new NestableFieldValidator for a given class.
-     * @param cls the Class the field should be a type of
+     *
+     * @param cls     the Class the field should be a type of
      * @param notNull whether or not a value of null is valid
      * @return a NestableFieldValidator for that class
      */
@@ -86,7 +48,8 @@ public class ConfigValidationUtils {
 
     /**
      * Returns a new NestableFieldValidator for a List of the given Class.
-     * @param cls the Class of elements composing the list
+     *
+     * @param cls     the Class of elements composing the list
      * @param notNull whether or not a value of null is valid
      * @return a NestableFieldValidator for a list of the given class
      */
@@ -96,9 +59,11 @@ public class ConfigValidationUtils {
 
     /**
      * Returns a new NestableFieldValidator for a List where each item is validated by validator.
+     *
      * @param validator used to validate each item in the list
-     * @param notNull whether or not a value of null is valid
-     * @return a NestableFieldValidator for a list with each item validated by a different validator.
+     * @param notNull   whether or not a value of null is valid
+     * @return a NestableFieldValidator for a list with each item validated by a different
+     *     validator.
      */
     public static NestableFieldValidator listFv(final NestableFieldValidator validator,
                                                 final boolean notNull) {
@@ -120,17 +85,19 @@ public class ConfigValidationUtils {
                     }
                     return;
                 }
-                throw new IllegalArgumentException(
-                        "Field " + name + " must be an Iterable but was " +
-                                ((field == null) ? "null" : ("a " + field.getClass())));
+                throw new IllegalArgumentException("Field "
+                        + name
+                        + " must be an Iterable but was "
+                        + ((field == null) ? "null" : ("a " + field.getClass())));
             }
         };
     }
 
     /**
      * Returns a new NestableFieldValidator for a Map of key to val.
-     * @param key the Class of keys in the map
-     * @param val the Class of values in the map
+     *
+     * @param key     the Class of keys in the map
+     * @param val     the Class of values in the map
      * @param notNull whether or not a value of null is valid
      * @return a NestableFieldValidator for a Map of key to val
      */
@@ -141,8 +108,9 @@ public class ConfigValidationUtils {
 
     /**
      * Returns a new NestableFieldValidator for a Map.
-     * @param key a validator for the keys in the map
-     * @param val a validator for the values in the map
+     *
+     * @param key     a validator for the keys in the map
+     * @param val     a validator for the values in the map
      * @param notNull whether or not a value of null is valid
      * @return a NestableFieldValidator for a Map
      */
@@ -161,7 +129,8 @@ public class ConfigValidationUtils {
                     }
                 }
                 if (field instanceof Map) {
-                    for (Map.Entry<Object, Object> entry : ((Map<Object, Object>) field).entrySet()) {
+                    for (Map.Entry<Object, Object> entry : ((Map<Object, Object>) field)
+                            .entrySet()) {
                         key.validateField("Each key of the map ", name, entry.getKey());
                         val.validateField("Each value in the map ", name, entry.getValue());
                     }
@@ -171,5 +140,40 @@ public class ConfigValidationUtils {
                         "Field " + name + " must be a Map");
             }
         };
+    }
+
+    /**
+     * Declares methods for validating configuration values.
+     */
+    public interface FieldValidator {
+        /**
+         * Validates the given field.
+         *
+         * @param name  the name of the field.
+         * @param field The field to be validated.
+         * @throws IllegalArgumentException if the field fails validation.
+         */
+        void validateField(String name, Object field) throws IllegalArgumentException;
+    }
+
+    /**
+     * Declares a method for validating configuration values that is nestable.
+     */
+    public abstract static class NestableFieldValidator implements FieldValidator {
+        @Override
+        public void validateField(String name, Object field) throws IllegalArgumentException {
+            validateField(null, name, field);
+        }
+
+        /**
+         * Validates the given field.
+         *
+         * @param pd    describes the parent wrapping this validator.
+         * @param name  the name of the field.
+         * @param field The field to be validated.
+         * @throws IllegalArgumentException if the field fails validation.
+         */
+        public abstract void validateField(String pd, String name,
+                Object field) throws IllegalArgumentException;
     }
 }

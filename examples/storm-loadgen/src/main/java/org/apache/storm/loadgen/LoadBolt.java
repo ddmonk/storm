@@ -23,11 +23,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.storm.generated.GlobalStreamId;
 import org.apache.storm.task.OutputCollector;
@@ -72,7 +67,7 @@ public class LoadBolt extends BaseRichBolt {
     }
 
     private void emitTuples(Tuple input) {
-        for (OutputStreamEngine se: outputStreams) {
+        for (OutputStreamEngine se : outputStreams) {
             // we may output many tuples for a given input tuple
             while (se.shouldEmit() != null) {
                 collector.emit(se.streamName, input, new Values(se.nextKey(), "SOME-BOLT-VALUE"));
@@ -83,7 +78,7 @@ public class LoadBolt extends BaseRichBolt {
     @Override
     public void execute(final Tuple input) {
         long startTimeNs = System.nanoTime();
-        InputStream in = inputStreams.get(input.getSourceGlobalStreamid());
+        InputStream in = inputStreams.get(input.getSourceGlobalStreamId());
         sleep.simulateProcessAndExecTime(executorIndex, startTimeNs, in, () -> {
             emitTuples(input);
             collector.ack(input);
@@ -92,7 +87,7 @@ public class LoadBolt extends BaseRichBolt {
 
     @Override
     public void declareOutputFields(OutputFieldsDeclarer declarer) {
-        for (OutputStream s: outputStreamStats) {
+        for (OutputStream s : outputStreamStats) {
             declarer.declareStream(s.id, new Fields("key", "value"));
         }
     }

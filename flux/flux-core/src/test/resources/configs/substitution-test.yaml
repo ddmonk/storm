@@ -45,6 +45,8 @@ config:
   test.env.value: "${ENV-PATH}"
   # test variable substitution for list type
   list.property.target: ${a.list.property}
+  # test variable substitution for list element
+  list.element.property.target: ${a.list.property[0]}
 
 # spout definitions
 spouts:
@@ -65,7 +67,7 @@ bolts:
     className: "org.apache.storm.flux.wrappers.bolts.FluxShellBolt"
     constructorArgs:
       # command line
-      - ["python", "splitsentence.py"]
+      - ["python3", "splitsentence.py"]
       # output fields
       - ["word"]
     parallelism: 1

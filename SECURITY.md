@@ -1,9 +1,12 @@
 # Running Apache Storm Securely
 
 Apache Storm offers a range of configuration options when trying to secure
-your cluster.  By default all authentication and authorization is disabled but
-can be turned on as needed.  Many of these features only became available in
-Storm-0.10.
+your cluster.  By default, all authentication and authorization is disabled but
+can be turned on as needed. 
+
++For the assumptions, trust boundaries, and scope of what Storm considers a security vulnerability, see the       
++ [Apache Storm Security Model](https://storm.apache.org/security-model.html). Reading it first is recommended before reporting sec       
++urity issues.
 
 ## Firewall/OS level Security
 
@@ -28,6 +31,7 @@ IPsec to encrypt all traffic being sent between the hosts in the cluster.
 |--------------|--------------|------------------------|--------|
 | 2181 | `storm.zookeeper.port` | Nimbus, Supervisors, and Worker processes | ZooKeeper |
 | 6627 | `nimbus.thrift.port` | Storm clients, Supervisors, and UI | Nimbus |
+| 6628 | `supervisor.thrift.port` | Nimbus | Supervisors |
 | 8080 | `ui.port` | Client Web Browsers | UI |
 | 8000 | `logviewer.port` | Client Web Browsers | Logviewer |
 | 3772 | `drpc.port` | External DRPC Clients | DRPC |
@@ -50,6 +54,8 @@ Some form of Authentication is typically required; e.g., by using java servlet f
 ```yaml
 ui.filter: "filter.class"
 ui.filter.params: "param1":"value1"
+logviewer.filter: "filter.class"
+logviewer.filter.params: "param1":"value1"
 ```
 or by restricting the UI/log-viewers ports to only accept connections from localhost,
 and then front them with another web server, like Apache httpd, that can
@@ -62,7 +68,7 @@ The servlet filters are preferred because they allow individual topologies to
 specify who is (and who is not) allowed to access the pages associated with
 each topology.
 
-The Storm UI can be configured to use `AuthenticationFilter` from hadoop-auth.
+The Storm UI (or logviewer) can be configured to use `AuthenticationFilter` from hadoop-auth.
 ```yaml
 ui.filter: "org.apache.hadoop.security.authentication.server.AuthenticationFilter"
 ui.filter.params:
@@ -402,7 +408,7 @@ supervisor.run.worker.as.user: true
 
 There are several files that go along with this that need to be configured properly to make storm secure.
 
-The `worker-launcher` executable is a special program that allows the supervisor to launch workers as different users.  For this to work, `worker-launcher` needs to be owned by root, but with the group set to be a group that only the supervisor headless user is a part of.  `worker-launcher` also needs to have `6550` octal permissions.  There is also a `worker-launcher.cfg` file, usually located under /etc/, that should look something like the following:
+The `worker-launcher` executable is a special program that allows the supervisor to launch workers as different users.  For this to work, `worker-launcher` needs to be owned by root, but with the group set to be a group that only the supervisor headless user is a part of.  `worker-launcher` also needs to have `6550` octal permissions.  There is also a `worker-launcher.cfg` file, usually located under `/etc/storm`, that should look something like the following:
 
 ```ini
 storm.worker-launcher.group=$(worker_launcher_group)
@@ -410,6 +416,17 @@ min.user.id=$(min_user_id)
 ```
 where `worker_launcher_group` is the same group the supervisor user is a part of, and `min.user.id` is set to the first real user id on the system.
 This config file also needs to be owned by root and *not* have world nor group write permissions.
+
+
+### Storm‐Netty Authentication
+
+The authentication for Netty connections between workers by default is disabled. 
+It can either be set for your cluster or on a per topology basis. This setting will prevent any 
+unauthorized messages from getting processed. The config for enabling the
+Storm‐Netty authentication is as follows:
+```yaml
+storm.messaging.netty.authentication: true
+```
 
 ### Impersonating a user
 A storm client may submit requests on behalf of another user. For example, if a `userX` submits an oozie workflow and as part of workflow execution if user `oozie` wants to submit a topology on behalf of `userX`
@@ -433,6 +450,9 @@ nimbus.impersonation.acl:
         groups:
             [comma separated list of groups whose users impersonating_user2 is allowed to impersonate]
 ```
+
+The DRPC server applies the same `nimbus.impersonation.authorizer` and `nimbus.impersonation.acl` to requests that impersonate another user (for example through the `doAsUser` HTTP header or query parameter), so the DRPC server should be configured with the same settings (including `storm.group.mapping.service`). A request that sets `doAsUser` without an authenticated user is rejected, whether or not an impersonation authorizer is configured.
+For HTTP requests the host is the address the DRPC server sees the connection come from, so when the DRPC HTTP endpoint is behind a reverse proxy, the hosts listed in `nimbus.impersonation.acl` match the proxy rather than the original client.
 
 To support the oozie use-case, the following config can be supplied:
 ```yaml
@@ -495,5 +515,3 @@ nimbus.groups:
 
 ### DRPC
 Hopefully more on this soon
-
-

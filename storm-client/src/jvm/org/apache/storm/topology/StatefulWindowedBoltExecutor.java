@@ -1,22 +1,21 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
+
 package org.apache.storm.topology;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.apache.storm.Config;
 import org.apache.storm.generated.GlobalStreamId;
 import org.apache.storm.state.KeyValueState;
@@ -29,14 +28,10 @@ import org.apache.storm.windowing.WindowLifecycleListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 /**
- * Wraps a {@link IStatefulWindowedBolt} and handles the execution. Saves the last expired
- * and evaluated states of the window during checkpoint and restores the state during recovery.
+ * Wraps a {@link IStatefulWindowedBolt} and handles the execution. Saves the last expired and
+ * evaluated states of the window during
+ * checkpoint and restores the state during recovery.
  */
 public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltExecutor implements IStatefulBolt<T> {
     private static final Logger LOG = LoggerFactory.getLogger(StatefulWindowedBoltExecutor.class);
@@ -58,7 +53,8 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
     }
 
     @Override
-    public void prepare(Map<String, Object> topoConf, TopologyContext context, OutputCollector collector) {
+    public void prepare(Map<String, Object> topoConf, TopologyContext context,
+        OutputCollector collector) {
         prepare(topoConf, context, collector, getWindowState(topoConf, context));
     }
 
@@ -69,12 +65,14 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
         super.prepare(topoConf, context, collector);
     }
 
-    private void init(Map<String, Object> topoConf, TopologyContext context, OutputCollector collector,
+    private void init(Map<String, Object> topoConf, TopologyContext context,
+            OutputCollector collector,
                       KeyValueState<TaskStream, WindowState> windowState) {
         if (topoConf.containsKey(Config.TOPOLOGY_BOLTS_MESSAGE_ID_FIELD_NAME)) {
             msgIdFieldName = (String) topoConf.get(Config.TOPOLOGY_BOLTS_MESSAGE_ID_FIELD_NAME);
         } else {
-            throw new IllegalArgumentException(Config.TOPOLOGY_BOLTS_MESSAGE_ID_FIELD_NAME + " is not set");
+            throw new IllegalArgumentException(Config.TOPOLOGY_BOLTS_MESSAGE_ID_FIELD_NAME
+                    + " is not set");
         }
         topologyContext = context;
         outputCollector = collector;
@@ -88,7 +86,8 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
     @Override
     public void execute(Tuple input) {
         if (!isStateInitialized()) {
-            throw new IllegalStateException("execute invoked before initState with input tuple " + input);
+            throw new IllegalStateException("execute invoked before initState with input tuple "
+                    + input);
         } else if (isRecovering()) {
             handleRecovery(input);
         } else {
@@ -113,13 +112,18 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
         if (state != null) {
             LOG.debug("Tuple msgid {}, saved state {}", msgId, state);
             if (msgId <= state.lastExpired) {
-                LOG.debug("Ignoring tuple since msg id {} <= lastExpired id {}", msgId, state.lastExpired);
+                LOG.debug("Ignoring tuple since msg id {} <= lastExpired id {}", msgId,
+                        state.lastExpired);
                 outputCollector.ack(input);
             } else if (msgId <= state.lastEvaluated) {
                 super.execute(input);
             } else {
-                LOG.debug("Tuple msg id {} > lastEvaluated id {}, adding to pendingTuples and clearing recovery state " +
-                                  "for taskStream {}", msgId, state.lastEvaluated, taskStream);
+                LOG.debug("Tuple msg id {} > lastEvaluated id {}, adding to pendingTuples and "
+                        + "clearing recovery state "
+                        + "for taskStream {}",
+                        msgId,
+                        state.lastEvaluated,
+                        taskStream);
                 pendingTuples.add(input);
                 clearRecoveryState(taskStream);
             }
@@ -207,10 +211,17 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
             }
 
             @Override
-            public void onActivation(List<Tuple> events, List<Tuple> newEvents, List<Tuple> expired, Long timestamp) {
+            public void onActivation(List<Tuple> events, List<Tuple> newEvents, List<Tuple> expired,
+                Long timestamp) {
                 if (isRecovering()) {
-                    String msg = String.format("Unexpected activation with events %s, newEvents %s, expired %s in recovering state. " +
-                                                       "recoveryStates %s ", events, newEvents, expired, recoveryStates);
+                    String msg = String
+                            .format("Unexpected activation with events %s, newEvents %s, expired "
+                            + "%s in "
+                            + "recovering state. recoveryStates %s ",
+                            events,
+                            newEvents,
+                            expired,
+                            recoveryStates);
                     LOG.error(msg);
                     throw new IllegalStateException(msg);
                 } else {
@@ -222,14 +233,16 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
     }
 
     private void updateWindowState(List<Tuple> expired, List<Tuple> newEvents) {
-        LOG.debug("Update window state, {} expired, {} new events", expired.size(), newEvents.size());
+        LOG.debug("Update window state, {} expired, {} new events", expired.size(), newEvents
+                .size());
         Map<TaskStream, WindowState> state = new HashMap<>();
         updateState(state, expired, false);
         updateState(state, newEvents, true);
         updateStreamState(state);
     }
 
-    private void updateState(Map<TaskStream, WindowState> state, List<Tuple> tuples, boolean newEvents) {
+    private void updateState(Map<TaskStream, WindowState> state, List<Tuple> tuples,
+            boolean newEvents) {
         for (Tuple tuple : tuples) {
             TaskStream taskStream = TaskStream.fromTuple(tuple);
             WindowState curState = state.get(taskStream);
@@ -249,9 +262,11 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
             if (curState == null) {
                 streamState.put(taskStream, newState);
             } else {
-                WindowState updatedState = new WindowState(Math.max(newState.lastExpired, curState.lastExpired),
-                                                           Math.max(newState.lastEvaluated, curState.lastEvaluated));
-                LOG.debug("Update window state, taskStream {}, curState {}, newState {}", taskStream, curState, updatedState);
+                WindowState updatedState = new WindowState(Math.max(newState.lastExpired,
+                        curState.lastExpired),
+                        Math.max(newState.lastEvaluated, curState.lastEvaluated));
+                LOG.debug("Update window state, taskStream {}, curState {}, newState {}",
+                        taskStream, curState, updatedState);
                 streamState.put(taskStream, updatedState);
             }
         }
@@ -279,9 +294,11 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
         return input.getLongByField(msgIdFieldName);
     }
 
-    private KeyValueState<TaskStream, WindowState> getWindowState(Map<String, Object> topoConf, TopologyContext context) {
+    private KeyValueState<TaskStream, WindowState> getWindowState(Map<String, Object> topoConf,
+            TopologyContext context) {
         String namespace = context.getThisComponentId() + "-" + context.getThisTaskId() + "-window";
-        return (KeyValueState<TaskStream, WindowState>) StateFactory.getState(namespace, topoConf, context);
+        return (KeyValueState<TaskStream, WindowState>) StateFactory.getState(namespace, topoConf,
+                context);
     }
 
     static class WindowState {
@@ -299,12 +316,18 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
 
             WindowState that = (WindowState) o;
 
-            if (lastExpired != that.lastExpired) return false;
+            if (lastExpired != that.lastExpired) {
+                return false;
+            }
             return lastEvaluated == that.lastEvaluated;
 
         }
@@ -318,10 +341,10 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
 
         @Override
         public String toString() {
-            return "WindowState{" +
-                    "lastExpired=" + lastExpired +
-                    ", lastEvaluated=" + lastEvaluated +
-                    '}';
+            return "WindowState{"
+                    + "lastExpired=" + lastExpired
+                    + ", lastEvaluated=" + lastEvaluated
+                    + '}';
         }
     }
 
@@ -338,14 +361,24 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
             this.streamId = streamId;
         }
 
+        static TaskStream fromTuple(Tuple input) {
+            return new TaskStream(input.getSourceTask(), input.getSourceGlobalStreamId());
+        }
+
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
 
             TaskStream that = (TaskStream) o;
 
-            if (sourceTask != that.sourceTask) return false;
+            if (sourceTask != that.sourceTask) {
+                return false;
+            }
             return streamId != null ? streamId.equals(that.streamId) : that.streamId == null;
 
         }
@@ -359,14 +392,10 @@ public class StatefulWindowedBoltExecutor<T extends State> extends WindowedBoltE
 
         @Override
         public String toString() {
-            return "TaskStream{" +
-                    "sourceTask=" + sourceTask +
-                    ", streamId=" + streamId +
-                    '}';
-        }
-
-        static TaskStream fromTuple(Tuple input) {
-            return new TaskStream(input.getSourceTask(), input.getSourceGlobalStreamId());
+            return "TaskStream{"
+                    + "sourceTask=" + sourceTask
+                    + ", streamId=" + streamId
+                    + '}';
         }
     }
 }

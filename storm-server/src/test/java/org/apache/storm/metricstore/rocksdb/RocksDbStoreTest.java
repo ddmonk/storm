@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -26,12 +26,10 @@ import org.apache.storm.metricstore.Metric;
 import org.apache.storm.metricstore.MetricException;
 import org.apache.storm.metricstore.MetricStore;
 import org.apache.storm.metricstore.MetricStoreConfig;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.awaitility.Awaitility;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -40,13 +38,17 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.storm.metric.StormMetricsRegistry;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class RocksDbStoreTest {
-    private final static Logger LOG = LoggerFactory.getLogger(RocksDbStoreTest.class);
     static MetricStore store;
     static Path tempDirForTest;
 
-    @BeforeClass
+    @BeforeAll
     public static void setUp() throws MetricException, IOException {
         // remove any previously created cache instance
         StringMetadataCache.cleanUp();
@@ -57,10 +59,10 @@ public class RocksDbStoreTest {
         conf.put(DaemonConfig.STORM_ROCKSDB_CREATE_IF_MISSING, true);
         conf.put(DaemonConfig.STORM_ROCKSDB_METADATA_STRING_CACHE_CAPACITY, 4000);
         conf.put(DaemonConfig.STORM_ROCKSDB_METRIC_RETENTION_HOURS, 240);
-        store = MetricStoreConfig.configure(conf);
+        store = MetricStoreConfig.configure(conf, new StormMetricsRegistry());
     }
 
-    @AfterClass
+    @AfterAll
     public static void tearDown() throws IOException {
         if (store != null) {
             store.close();
@@ -102,42 +104,42 @@ public class RocksDbStoreTest {
         toPopulate.setTimestamp(1L);
         toPopulate.setAggLevel(AggLevel.AGG_LEVEL_NONE);
         boolean res = store.populateValue(toPopulate);
-        Assert.assertEquals(true, res);
-        Assert.assertEquals(sum0, toPopulate.getSum(), 0.001);
-        Assert.assertEquals(sum0, toPopulate.getValue(), 0.001);
-        Assert.assertEquals(5.0, toPopulate.getMin(), 0.001);
-        Assert.assertEquals(5.0, toPopulate.getMax(), 0.001);
-        Assert.assertEquals(1, toPopulate.getCount());
+        assertTrue(res);
+        assertEquals(sum0, toPopulate.getSum(), 0.001);
+        assertEquals(sum0, toPopulate.getValue(), 0.001);
+        assertEquals(5.0, toPopulate.getMin(), 0.001);
+        assertEquals(5.0, toPopulate.getMax(), 0.001);
+        assertEquals(1, toPopulate.getCount());
 
         toPopulate.setTimestamp(0L);
         toPopulate.setAggLevel(AggLevel.AGG_LEVEL_1_MIN);
         res = store.populateValue(toPopulate);
-        Assert.assertEquals(true, res);
-        Assert.assertEquals(sum1, toPopulate.getSum(), 0.001);
-        Assert.assertEquals(sum1, toPopulate.getValue(), 0.001);
-        Assert.assertEquals(5.0, toPopulate.getMin(), 0.001);
-        Assert.assertEquals(5.0, toPopulate.getMax(), 0.001);
-        Assert.assertEquals(1, toPopulate.getCount());
+        assertTrue(res);
+        assertEquals(sum1, toPopulate.getSum(), 0.001);
+        assertEquals(sum1, toPopulate.getValue(), 0.001);
+        assertEquals(5.0, toPopulate.getMin(), 0.001);
+        assertEquals(5.0, toPopulate.getMax(), 0.001);
+        assertEquals(1, toPopulate.getCount());
 
         toPopulate.setTimestamp(0L);
         toPopulate.setAggLevel(AggLevel.AGG_LEVEL_10_MIN);
         res = store.populateValue(toPopulate);
-        Assert.assertEquals(true, res);
-        Assert.assertEquals(sum10, toPopulate.getSum(), 0.001);
-        Assert.assertEquals(sum10/10.0, toPopulate.getValue(), 0.001);
-        Assert.assertEquals(5.0, toPopulate.getMin(), 0.001);
-        Assert.assertEquals(14.0, toPopulate.getMax(), 0.001);
-        Assert.assertEquals(10, toPopulate.getCount());
+        assertTrue(res);
+        assertEquals(sum10, toPopulate.getSum(), 0.001);
+        assertEquals(sum10/10.0, toPopulate.getValue(), 0.001);
+        assertEquals(5.0, toPopulate.getMin(), 0.001);
+        assertEquals(14.0, toPopulate.getMax(), 0.001);
+        assertEquals(10, toPopulate.getCount());
 
         toPopulate.setTimestamp(0L);
         toPopulate.setAggLevel(AggLevel.AGG_LEVEL_60_MIN);
         res = store.populateValue(toPopulate);
-        Assert.assertEquals(true, res);
-        Assert.assertEquals(sum60, toPopulate.getSum(), 0.001);
-        Assert.assertEquals(sum60/20.0, toPopulate.getValue(), 0.001);
-        Assert.assertEquals(5.0, toPopulate.getMin(), 0.001);
-        Assert.assertEquals(24.0, toPopulate.getMax(), 0.001);
-        Assert.assertEquals(20, toPopulate.getCount());
+        assertTrue(res);
+        assertEquals(sum60, toPopulate.getSum(), 0.001);
+        assertEquals(sum60/20.0, toPopulate.getValue(), 0.001);
+        assertEquals(5.0, toPopulate.getMin(), 0.001);
+        assertEquals(24.0, toPopulate.getMax(), 0.001);
+        assertEquals(20, toPopulate.getCount());
     }
 
     @Test
@@ -149,14 +151,12 @@ public class RocksDbStoreTest {
         Metric toFind = new Metric(m);
         toFind.setTopologyId("somethingBogus");
         boolean res = store.populateValue(toFind);
-        Assert.assertEquals(false, res);
+        assertFalse(res);
     }
 
     private List<Metric> getMetricsFromScan(FilterOptions filter) throws MetricException {
         List<Metric> list = new ArrayList<>();
-        store.scan(filter, (Metric m) -> {
-            list.add(m);
-        });
+        store.scan(filter, list::add);
         return list;
     }
 
@@ -185,91 +185,91 @@ public class RocksDbStoreTest {
         filter.setStartTime(50000000L);
         filter.setEndTime(50130000L);
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(2, list.size());
-        Assert.assertTrue(list.contains(m1));
-        Assert.assertTrue(list.contains(m2));
+        assertEquals(2, list.size());
+        assertTrue(list.contains(m1));
+        assertTrue(list.contains(m2));
 
         // validate search by topology id
         filter = new FilterOptions();
         filter.addAggLevel(AggLevel.AGG_LEVEL_NONE);
         filter.setTopologyId("Topo-m2");
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(1, list.size());
-        Assert.assertTrue(list.contains(m4));
+        assertEquals(1, list.size());
+        assertTrue(list.contains(m4));
 
         // validate search by metric id
         filter = new FilterOptions();
         filter.addAggLevel(AggLevel.AGG_LEVEL_NONE);
         filter.setMetricName("metricType2");
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(1, list.size());
-        Assert.assertTrue(list.contains(m2));
+        assertEquals(1, list.size());
+        assertTrue(list.contains(m2));
 
         // validate search by component id
         filter = new FilterOptions();
         filter.addAggLevel(AggLevel.AGG_LEVEL_NONE);
         filter.setComponentId("component-2");
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(2, list.size());
-        Assert.assertTrue(list.contains(m3));
-        Assert.assertTrue(list.contains(m4));
+        assertEquals(2, list.size());
+        assertTrue(list.contains(m3));
+        assertTrue(list.contains(m4));
 
         // validate search by executor id
         filter = new FilterOptions();
         filter.addAggLevel(AggLevel.AGG_LEVEL_NONE);
         filter.setExecutorId("executor-1");
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(3, list.size());
-        Assert.assertTrue(list.contains(m2));
-        Assert.assertTrue(list.contains(m3));
-        Assert.assertTrue(list.contains(m4));
+        assertEquals(3, list.size());
+        assertTrue(list.contains(m2));
+        assertTrue(list.contains(m3));
+        assertTrue(list.contains(m4));
 
         // validate search by executor id
         filter = new FilterOptions();
         filter.addAggLevel(AggLevel.AGG_LEVEL_NONE);
         filter.setExecutorId("executor-1");
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(3, list.size());
-        Assert.assertTrue(list.contains(m2));
-        Assert.assertTrue(list.contains(m3));
-        Assert.assertTrue(list.contains(m4));
+        assertEquals(3, list.size());
+        assertTrue(list.contains(m2));
+        assertTrue(list.contains(m3));
+        assertTrue(list.contains(m4));
 
         // validate search by host id
         filter = new FilterOptions();
         filter.addAggLevel(AggLevel.AGG_LEVEL_NONE);
         filter.setHostId("hostname-2");
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(2, list.size());
-        Assert.assertTrue(list.contains(m2));
-        Assert.assertTrue(list.contains(m4));
+        assertEquals(2, list.size());
+        assertTrue(list.contains(m2));
+        assertTrue(list.contains(m4));
 
         // validate search by port
         filter = new FilterOptions();
         filter.addAggLevel(AggLevel.AGG_LEVEL_NONE);
         filter.setPort(1);
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(3, list.size());
-        Assert.assertTrue(list.contains(m1));
-        Assert.assertTrue(list.contains(m2));
-        Assert.assertTrue(list.contains(m3));
+        assertEquals(3, list.size());
+        assertTrue(list.contains(m1));
+        assertTrue(list.contains(m2));
+        assertTrue(list.contains(m3));
 
         // validate search by stream id
         filter = new FilterOptions();
         filter.addAggLevel(AggLevel.AGG_LEVEL_NONE);
         filter.setStreamId("stream-4");
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(1, list.size());
-        Assert.assertTrue(list.contains(m4));
+        assertEquals(1, list.size());
+        assertTrue(list.contains(m4));
 
         // validate 4 metrics (aggregations) found for m4 for all agglevels when searching by port
         filter = new FilterOptions();
         filter.setPort(2);
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(4, list.size());
-        Assert.assertTrue(list.contains(m4));
-        Assert.assertFalse(list.contains(m1));
-        Assert.assertFalse(list.contains(m2));
-        Assert.assertFalse(list.contains(m3));
+        assertEquals(4, list.size());
+        assertTrue(list.contains(m4));
+        assertFalse(list.contains(m1));
+        assertFalse(list.contains(m2));
+        assertFalse(list.contains(m3));
 
         // validate search by topology id and executor id
         filter = new FilterOptions();
@@ -277,9 +277,9 @@ public class RocksDbStoreTest {
         filter.setTopologyId("Topo-m1");
         filter.setExecutorId("executor-1");
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(2, list.size());
-        Assert.assertTrue(list.contains(m2));
-        Assert.assertTrue(list.contains(m3));
+        assertEquals(2, list.size());
+        assertTrue(list.contains(m2));
+        assertTrue(list.contains(m3));
     }
 
     @Test
@@ -304,25 +304,21 @@ public class RocksDbStoreTest {
         filter = new FilterOptions();
         filter.addAggLevel(AggLevel.AGG_LEVEL_NONE);
         list = getMetricsFromScan(filter);
-        Assert.assertTrue(list.size() >= 2);
+        assertTrue(list.size() >= 2);
 
         // delete anything older than an hour
-        MetricsCleaner cleaner = new MetricsCleaner((RocksDbStore)store, 1, 1, null);
+        MetricsCleaner cleaner = new MetricsCleaner((RocksDbStore)store, 1, 1, null, new StormMetricsRegistry());
         cleaner.purgeMetrics();
         list = getMetricsFromScan(filter);
-        Assert.assertEquals(1, list.size());
-        Assert.assertTrue(list.contains(m2));
+        assertEquals(1, list.size());
+        assertTrue(list.contains(m2));
     }
 
-    private void waitForInsertFinish(Metric m) throws Exception {
+    private void waitForInsertFinish(Metric m) {
         Metric last = new Metric(m);
-        int attempts = 0;
-        do {
-            Thread.sleep(1);
-            attempts++;
-            if (attempts > 5000) {
-                throw new Exception("Insertion timing out");
-            }
-        } while (!store.populateValue(last));
+        Awaitility.await("metric insertion to complete")
+            .atMost(5, java.util.concurrent.TimeUnit.SECONDS)
+            .pollInterval(1, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .until(() -> store.populateValue(last));
     }
 }

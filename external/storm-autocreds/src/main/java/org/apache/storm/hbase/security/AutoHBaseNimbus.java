@@ -18,30 +18,29 @@
 
 package org.apache.storm.hbase.security;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.client.Connection;
-import org.apache.hadoop.hbase.client.ConnectionFactory;
-import org.apache.hadoop.hbase.security.User;
-import org.apache.hadoop.hbase.security.UserProvider;
-import org.apache.hadoop.hbase.security.token.TokenUtil;
-import org.apache.hadoop.security.Credentials;
-import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hadoop.security.token.Token;
-import org.apache.hadoop.security.token.TokenIdentifier;
-import org.apache.storm.Config;
-import org.apache.storm.common.AbstractHadoopNimbusPluginAutoCreds;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.apache.storm.hbase.security.HBaseSecurityUtil.HBASE_CREDENTIALS;
+import static org.apache.storm.hbase.security.HBaseSecurityUtil.HBASE_KEYTAB_FILE_KEY;
+import static org.apache.storm.hbase.security.HBaseSecurityUtil.HBASE_PRINCIPAL_KEY;
 
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectOutputStream;
 import java.net.InetAddress;
 import java.util.Map;
 
-import static org.apache.storm.hbase.security.HBaseSecurityUtil.HBASE_CREDENTIALS;
-import static org.apache.storm.hbase.security.HBaseSecurityUtil.HBASE_KEYTAB_FILE_KEY;
-import static org.apache.storm.hbase.security.HBaseSecurityUtil.HBASE_PRINCIPAL_KEY;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.client.Connection;
+import org.apache.hadoop.hbase.client.ConnectionFactory;
+import org.apache.hadoop.hbase.security.User;
+import org.apache.hadoop.hbase.security.UserProvider;
+import org.apache.hadoop.hbase.security.token.ClientTokenUtil;
+import org.apache.hadoop.security.Credentials;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.token.Token;
+import org.apache.hadoop.security.token.TokenIdentifier;
+import org.apache.storm.common.AbstractHadoopNimbusPluginAutoCreds;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Auto credentials nimbus plugin for HBase implementation. This class automatically
@@ -76,16 +75,10 @@ public class AutoHBaseNimbus extends AbstractHadoopNimbusPluginAutoCreds {
         return getHadoopCredentials(conf, HBaseConfiguration.create(), topologyOwnerPrincipal);
     }
 
-    private Configuration getHadoopConfiguration(Map<String, Object> topoConf, String configKey) {
-        Configuration configuration = HBaseConfiguration.create();
-        fillHadoopConfiguration(topoConf, configKey, configuration);
-        return configuration;
-    }
-
     @SuppressWarnings("unchecked")
     protected byte[] getHadoopCredentials(Map<String, Object> conf, Configuration hbaseConf, final String topologySubmitterUser) {
         try {
-            if(UserGroupInformation.isSecurityEnabled()) {
+            if (UserGroupInformation.isSecurityEnabled()) {
                 UserProvider provider = UserProvider.instantiate(hbaseConf);
                 provider.login(HBASE_KEYTAB_FILE_KEY, HBASE_PRINCIPAL_KEY, InetAddress.getLocalHost().getCanonicalHostName());
 
@@ -97,9 +90,9 @@ public class AutoHBaseNimbus extends AbstractHadoopNimbusPluginAutoCreds {
 
                 User user = User.create(proxyUser);
 
-                if(user.isHBaseSecurityEnabled(hbaseConf)) {
+                if (user.isHBaseSecurityEnabled(hbaseConf)) {
                     final Connection connection = ConnectionFactory.createConnection(hbaseConf, user);
-                    TokenUtil.obtainAndCacheToken(connection, user);
+                    ClientTokenUtil.obtainAndCacheToken(connection, user);
 
                     LOG.info("Obtained HBase tokens, adding to user credentials.");
 
@@ -123,8 +116,14 @@ public class AutoHBaseNimbus extends AbstractHadoopNimbusPluginAutoCreds {
                 throw new RuntimeException("Security is not enabled for Hadoop");
             }
         } catch (Exception ex) {
-            throw new RuntimeException("Failed to get delegation tokens." , ex);
+            throw new RuntimeException("Failed to get delegation tokens.", ex);
         }
+    }
+
+    private Configuration getHadoopConfiguration(Map<String, Object> topoConf, String configKey) {
+        Configuration configuration = HBaseConfiguration.create();
+        fillHadoopConfiguration(topoConf, configKey, configuration);
+        return configuration;
     }
 
     @Override

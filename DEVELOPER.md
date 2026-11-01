@@ -90,18 +90,10 @@ _If you are interested in contributing code to Storm but do not know where to be
 In this case you should
 [browse our issue tracker for open issues and tasks](https://issues.apache.org/jira/browse/STORM/?selectedTab=com.atlassian.jira.jira-projects-plugin:issues-panel).
 You may want to start with beginner-friendly, easier issues
-([newbie issues](https://issues.apache.org/jira/browse/STORM-58?jql=project%20%3D%20STORM%20AND%20labels%20%3D%20newbie%20AND%20status%20%3D%20Open)
+([newbie issues](https://issues.apache.org/jira/issues/?jql=project%20%3D%20STORM%20AND%20status%20%3D%20Open%20AND%20labels%20%3D%20newbie)
 and
 [trivial issues](https://issues.apache.org/jira/secure/IssueNavigator.jspa?reset=true&jqlQuery=project+%3D+STORM+AND+resolution+%3D+Unresolved+AND+priority+%3D+Trivial+ORDER+BY+key+DESC&mode=hide))
 because they require learning about only an isolated portion of the codebase and are a relatively small amount of work.
-
-Please use idiomatic Clojure style, as explained in [this Clojure style guide][clj-SG]. Another useful reference is
-the [Clojure Library Coding Standards][clj-LCS]. Perhaps the most important is consistenly writing a clear docstring
-for functions, explaining the return value and arguments. As of this writing, the Storm codebase would benefit from
-various style improvements.
-
-[clj-SG]: https://github.com/bbatsov/clojure-style-guide
-[clj-LCS]: http://dev.clojure.org/display/community/Library+Coding+Standards
 
 Contributions to the Storm codebase should be sent as GitHub pull requests.  See section _Create a pull request_ below
 for details.  If there is any problem with the pull request we can iterate on it using the commenting features of
@@ -123,7 +115,7 @@ GitHub.
 
 Unit tests and Integration tests are an essential part of code contributions.
 
-To mark a Java test as a Java integration test, add the annotation `@Category(IntegrationTest.class)` to the test class definition as well as to its hierarchy of superclasses. Java integration tests can be in the same package as Java unit tests.
+To mark a Java test as a Java integration test, add the annotation `@IntegrationTest` to the test class definition or test method. Make sure the test is a JUnit 5 test. Java integration tests can be in the same package as Java unit tests.
  
 ```java
     @Category(IntegrationTest.class)
@@ -131,11 +123,6 @@ To mark a Java test as a Java integration test, add the annotation `@Category(In
     ...
     }
 ```
- 
-To mark a Clojure test as Clojure integration test, the test source must be located in a package with name prefixed by `integration.`
-
-For example, the test `test/clj/org.apache.storm.drpc_test.clj` is considered a clojure unit test, whereas
- `test/clj/integration.org.apache.storm.drpc_test.clj` is considered a clojure integration test.
 
 Please refer to section <a href="#building">Build the code and run the tests</a> for how to run integration tests, and the info on the build phase each test runs. 
 
@@ -145,8 +132,9 @@ Please refer to section <a href="#building">Build the code and run the tests</a>
 
 Documentation contributions are very welcome!
 
-You can contribute documentation by pull request, as same as code contribution.
-Main directory is ```docs/```, and you can refer to docs/README.md for how to build / test website.
+You can contribute documentation by pull request, using the same process as code contribution.
+Release specific documentation can be found in `docs/` in this repository.
+Documentation not specific to a release, e.g. announcements, is found in the [storm-site](https://github.com/apache/storm-site) repository. If you'd like to build or test the website, refer to the README.md in the storm-site repository.
 
 <a name="pull-requests"></a>
 
@@ -192,12 +180,15 @@ _This section applies to committers only._
 
 **Important: A pull request must first be properly approved before you are allowed to merge it.**
 
-Committers that are integrating patches or pull requests should use the official Apache repository at
-[https://git-wip-us.apache.org/repos/asf/storm.git](https://git-wip-us.apache.org/repos/asf/storm.git).
+#### Via Github
+
+You can use the [Gitbox account linking utility](https://gitbox.apache.org/setup/) to link your Apache and Github accounts. This will allow you to merge pull requests using Github's UI. 
+
+#### Via your terminal
 
 To pull in a merge request you should generally follow the command line instructions sent out by GitHub.
 
-1. Go to your local copy of the [Apache git repo](https://git-wip-us.apache.org/repos/asf/storm.git), switch
+1. Go to your local copy of the [Apache git repo](https://gitbox.apache.org/repos/asf/storm.git), switch
    to the `master` branch, and make sure it is up to date.
 
         $ git checkout master
@@ -239,22 +230,28 @@ To pull in a merge request you should generally follow the command line instruct
 # Build the code and run the tests
 
 ## Prerequisites
-First of all you need to make sure you are using maven 3.2.5 or below.  There is a bug in later versions of maven as linked to from https://issues.apache.org/jira/browse/MSHADE-206 that
-cause shaded dependencies to not be packaged correctly.  Also please be aware that because we are shading dependencies mvn dependency:tree will not always show the dependencies correctly. 
 
-In order to build `storm` you need `python`, `ruby` and `nodejs`. In order to avoid an overfull page we don't provide platform/OS specific installation instructions for those here. Please refer to you platform's/OS' documentation for support.
+In order to build `storm` you need `python3`, `ruby` and `nodejs`. In order to avoid an overfull page we don't provide platform/OS specific installation instructions for those here. Please refer to you platform's/OS' documentation for support.
 
-The `ruby` package manager `rvm` and `nodejs` package manager `nvm` are for convenience and are used in the tests which run on [travis](https://travis-ci.org/apache/storm). They can be installed using `curl -L https://get.rvm.io | bash -s stable --autolibs=enabled && source ~/.profile` (see the [rvm installation instructions](https://github.com/rvm/rvm) for details) and `wget -qO- https://raw.githubusercontent.com/creationix/nvm/v0.26.1/install.sh | bash && source ~/.bashrc` (see the [nvm installation instructions](https://github.com/creationix/nvm) for details).
+The `ruby` version manager `rvm` and `nodejs` version manager `nvm` are for convenience and are used in the tests which run on [GitHub actions](https://github.com/apache/storm/actions). They can be installed using `curl -L https://get.rvm.io | bash -s stable --autolibs=enabled && source ~/.profile` (see the [rvm installation instructions](https://github.com/rvm/rvm) for details) and `wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash && source ~/.bashrc` (see the [nvm installation instructions](https://github.com/nvm-sh/nvm) for details).
 
 With `rvm` and `nvm` installed you can run
 
 ```sh
-rvm use 2.4.2 --install
-nvm install 8.9.3
-nvm use 8.9.3
+rvm use 2.7 --install
+nvm install 16
+nvm use 16
 ```
 
 in order to get started as fast as possible. Users can still install a specific version of `ruby` and/or `node` manually.
+
+You will also need the [mock](https://docs.python.org/3/library/unittest.mock.html) 
+python testing library (as well as [Python 3.x](https://github.com/pyenv/pyenv)). 
+With [pip3](https://pip.pypa.io/en/stable/installation/) installed you can run
+(Note: python 2.7.x is **not** supported).
+```
+pip3 install mock
+```
 
 ## Building
 
@@ -264,7 +261,9 @@ The following commands must be run from the top-level directory.
 
 If you wish to skip the unit tests you can do this by adding `-DskipTests` to the command line. 
 
-In case you modified `storm.thrift`, you have to regenerate thrift code as java and python code before compiling whole project.
+If you wish to skip the examples and external modules, you can do this by adding `-P '!examples,!externals'` to the command line.
+
+In case you modified `storm.thrift`, you have to regenerate thrift code as Java and Python code before compiling whole project.
 
 ```sh
 cd storm-client/src
@@ -273,44 +272,44 @@ sh genthrift.sh
 
 ## Testing
 
-Tests are separated in two groups, Unit tests, and Integration tests. Java unit tests, Clojure unit tests, and Clojure integration tests (for reasons inherent to the clojure-maven-plugin) run in the maven `test` phase. Java integration tests run in the maven `integration-test` or `verify` phases. 
- 
-To run Clojure and Java unit tests but no integration tests execute the command
- 
+Tests are separated in two groups, Unit tests, and Integration tests. Unit tests run in the maven `test` phase. Integration tests run in the maven `integration-test` or `verify` phases.
+
+To run unit tests but no integration tests execute the command
+
     mvn test
 
 Integration tests require that you activate the profile `integration-test` and that you specify the `maven-failsafe-plugin` in the module pom file.
- 
-To run all Java and Clojure integration tests but no unit tests execute one of the commands
- 
-    mvn -P  integration-tests-only verify
-    mvn -P  integration-tests-only integration-test
 
-To run all unit tests plus Clojure integration tests but no Java integration tests execute the command
- 
-    mvn -P all-tests test
+To run all integration tests but no unit tests execute one of the commands
+
+    mvn -P integration-tests-only,examples,externals verify
+    mvn -P integration-tests-only,examples,externals integration-test
 
 To run all unit tests and all integration tests execute one of the commands
+
+    mvn -P all-tests,examples,externals verify
+    mvn -P all-tests,examples,externals integration-test
+
+
+You can also run tests selectively with `-Dtest=<test_name>`.
+
+By default, integration tests are not run in the test phase. To run integration tests you must enable the profile `integration-tests-only`, or `all-tests`.
  
-    mvn -P all-tests verify
-    mvn -P all-tests integration-test
- 
- 
-You can also run tests selectively via the Clojure REPL.  The following example runs the tests in
-[auth_test.clj](storm-core/test/clj/org/apache/storm/security/auth/auth_test.clj), which has the namespace
-`org.apache.storm.security.auth.auth-test`.
+## Listing dependency licenses
 
-You can also run tests selectively with `-Dtest=<test_name>`.  This works for both clojure and junit tests.
+You can generate a list of dependencies and their licenses by running `mvn license:aggregate-add-third-party@generate-and-check-licenses -Dlicense.skipAggregateAddThirdParty=false` in the project root.
+The list will be put in DEPENDENCY_LICENSES.
 
-> Tip: IDEs such as IntelliJ IDEA support a built-in Clojure REPL, which you can also use to run tests selectively.
-> Sometimes you may find that tests pass/fail depending on which REPL you use, which -- although frustrating --
-> can be helpful to narrow down errors.
+The license aggregation plugin will use the license listed in a dependency's POM. If the license is missing, or incomplete (e.g. due to multiple licenses), you can override the license by describing the dependency in the THIRD-PARTY.properties file in the project root.
 
-Unfortunately you might experience failures in clojure tests which are wrapped in the `maven-clojure-plugin` and thus doesn't provide too much useful output at first sight - you might end up with a maven test failure with an error message as unhelpful as `Clojure failed.`. In this case it's recommended to look into `target/test-reports` of the failed project to see what actual tests have failed or scroll through the maven output looking for obvious issues like missing binaries.
+## Auditing licenses for LICENSE/NOTICE
+The LICENSE and NOTICE files contain licenses and notices for source distribution content. The LICENSE-binary and NOTICE-binary apply to the binary distributions.
 
-By default integration tests are not run in the test phase. To run Java and Clojure integration tests you must enable the profile
- 
+When auditing the binary LICENSE-binary and NOTICE-binary, there are a couple of helper scripts available in dev-tools. `collect_license_files` can create an aggregate NOTICE from the libraries in an extracted distribution. The aggregate NOTICE should be adjusted to remove Storm notices and duplicates, and added to the NOTICE-binary.
 
+The `dev-tools/validate-license-files.py` script will check that LICENSE-binary and DEPENDENCY_LICENSES are up to date. Regenerating DEPENDENCY_LICENSES simply requires rerunning the license plugin (see above). LICENSE-binary must be updated manually. The script will check that the dependencies included in a storm-dist/binary build are present in LICENSE-binary, and that no other dependencies are listed. Any additional or missing dependencies are printed to console, and can be added to LICENSE-binary manually. There will likely be an entry for them in `DEPENDENCY_LICENSES` that can be copy-pasted to LICENSE-binary.
+
+You can download the dependency licenses by running `mvn package -Dlicense.skipAggregateDownloadLicenses=false -DskipTests` in the project root. This will put the licenses in target/generated-resources. Keep an eye on the Maven output, as some dependencies may not have licenses configured correctly. These will have to be downloaded manually.
 
 <a name="packaging"></a>
 
@@ -353,14 +352,13 @@ You can verify whether the digital signatures match their corresponding files:
 ## Testing
 
 Tests should never rely on timing in order to pass.  Storm can properly test functionality that depends on time by
-simulating time, which means we do not have to worry about e.g. random delays failing our tests indeterministically.
+simulating time, which means we do not have to worry about e.g. random delays failing our tests non-deterministically.
 
 If you are testing topologies that do not do full tuple acking, then you should be testing using the "tracked
-topologies" utilities in `org.apache.storm.testing.clj`.  For example,
-[test-acking](storm-core/test/clj/org/apache/storm/integration_test.clj) (around line 213) tests the acking system in
-Storm using tracked topologies.  Here, the key is the `tracked-wait` function: it will only return when both that many
-tuples have been emitted by the spouts _and_ the topology is idle (i.e. no tuples have been emitted nor will be emitted
-without further input).  Note that you should not use tracked topologies for topologies that have tick tuples.
+topologies" utilities in `org.apache.storm.testing.TrackedTopology` (see also `org.apache.storm.Testing`). The key is the
+`trackedWait` method: it will only return when both that many tuples have been emitted by the spouts _and_ the topology
+is idle (i.e. no tuples have been emitted nor will be emitted without further input). Note that you should not use
+tracked topologies for topologies that have tick tuples.
 
 <a name="best-practices-versions"></a>
 
@@ -389,40 +387,29 @@ The source code of Storm is managed via [git](http://git-scm.com/).  For a numbe
 repository associated with Storm.
 
 * **Committers only:**
-  [https://git-wip-us.apache.org/repos/asf/storm.git](https://git-wip-us.apache.org/repos/asf/storm.git)
+  [https://gitbox.apache.org/repos/asf/storm.git](https://gitbox.apache.org/repos/asf/storm.git)
   is the official and authoritative git repository for Storm, managed under the umbrella of the Apache Software
   Foundation.  Only official Storm committers will interact with this repository.
   When you push the first time to this repository git will prompt you for your username and password.  Use your Apache
   user ID and password, i.e. the credentials you configured via [https://id.apache.org/](https://id.apache.org/) after
   you were [onboarded as a committer](http://www.apache.org/dev/new-committers-guide.html#account-creation).
 * **Everybody else:**
-  [https://github.com/apache/storm/](https://github.com/apache/storm/) is a read-only mirror of the
-  official git repository.  If you are not a Storm committer (most people) this is the repository you should work
-  against.  See _Development workflow_ above on how you can create a pull request, for instance.
-
-An automated bot (called _[ASF GitHub Bot](https://issues.apache.org/jira/secure/ViewProfile.jspa?name=githubbot)_ in
-[Storm JIRA](https://issues.apache.org/jira/browse/STORM)) runs periodically to merge changes in the
-[official Apache repo](https://git-wip-us.apache.org/repos/asf/storm.git) to the read-only
-[GitHub mirror repository](https://github.com/apache/storm/), and to merge comments in GitHub pull requests to
-the [Storm JIRA](https://issues.apache.org/jira/browse/STORM).
-
+  [https://github.com/apache/storm/](https://github.com/apache/storm/) is a mirror of the
+  ASF git repository. If you are not a Storm committer (most people) this is the repository you should work
+  against. See _Development workflow_ above on how you can create a pull request, for instance.
 
 <a name="issue-tracking"></a>
 
 ## Issue tracking (JIRA)
 
 Issue tracking includes tasks such as reporting bugs, requesting and collaborating on new features, and administrative
-activities for release management.  As an Apache software project we use JIRA as our issue tracking tool.
+activities for release management. As an Apache software project we use JIRA as our issue tracking tool.
 
 The Storm JIRA is available at:
 
 * [https://issues.apache.org/jira/browse/STORM](https://issues.apache.org/jira/browse/STORM)
 
-
 If you do not have a JIRA account yet, then you can create one via the link above (registration is free).
-
-<a name="code-search"></a>
-The storm codebase is available at [Codota](https://www.codota.com/xref/#/github_apache_storm_560da9ada8cb8703008bbfdc/findUsages) where you can semantically search it like in an IDE (e.g. find usages for a method). 
 
 <a name="questions"></a>
 

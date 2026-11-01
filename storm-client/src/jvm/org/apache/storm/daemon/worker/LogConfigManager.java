@@ -18,23 +18,22 @@
 
 package org.apache.storm.daemon.worker;
 
-import org.apache.logging.log4j.Level;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.core.LoggerContext;
-import org.apache.logging.log4j.core.config.Configuration;
-import org.apache.logging.log4j.core.config.LoggerConfig;
-import org.apache.storm.utils.Time;
-import org.apache.storm.generated.LogConfig;
-import org.apache.storm.generated.LogLevel;
-import org.apache.storm.generated.LogLevelAction;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.config.Configuration;
+import org.apache.logging.log4j.core.config.LoggerConfig;
+import org.apache.storm.generated.LogConfig;
+import org.apache.storm.generated.LogLevel;
+import org.apache.storm.generated.LogLevelAction;
+import org.apache.storm.utils.Time;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class LogConfigManager {
 
@@ -61,7 +60,8 @@ public class LogConfigManager {
             Map<String, LogLevel> newLogConfigs = new HashMap<>();
             for (Map.Entry<String, LogLevel> entry : loggers.entrySet()) {
                 String msgLoggerName = entry.getKey();
-                msgLoggerName = ("ROOT".equalsIgnoreCase(msgLoggerName)) ? LogManager.ROOT_LOGGER_NAME : msgLoggerName;
+                msgLoggerName = ("ROOT".equalsIgnoreCase(msgLoggerName))
+                        ? LogManager.ROOT_LOGGER_NAME : msgLoggerName;
                 LogLevel loggerLevel = entry.getValue();
                 // the new-timeouts map now contains logger => timeout
                 if (loggerLevel.is_set_reset_log_level_timeout_epoch()) {
@@ -78,12 +78,13 @@ public class LogConfigManager {
             }
 
             // Look for deleted log timeouts
-            TreeMap<String,LogLevel> latestConf = latestLogConfig.get();
+            TreeMap<String, LogLevel> latestConf = latestLogConfig.get();
             if (latestConf != null) {
                 for (String loggerName : latestConf.descendingKeySet()) {
-                    if (! newLogConfigs.containsKey(loggerName)) {
+                    if (!newLogConfigs.containsKey(loggerName)) {
                         // if we had a timeout, but the timeout is no longer active
-                        setLoggerLevel(logContext, loggerName, latestConf.get(loggerName).get_reset_log_level());
+                        setLoggerLevel(logContext, loggerName, latestConf.get(loggerName)
+                                .get_reset_log_level());
 
                     }
                 }
@@ -93,7 +94,8 @@ public class LogConfigManager {
             // the merged configs are only for the reset logic
             for (String loggerName : new TreeSet<>(logConfig.get_named_logger_level().keySet())) {
                 LogLevel logLevel = logConfig.get_named_logger_level().get(loggerName);
-                loggerName = ("ROOT".equalsIgnoreCase(loggerName)) ? LogManager.ROOT_LOGGER_NAME : loggerName;
+                loggerName = ("ROOT".equalsIgnoreCase(loggerName))
+                        ? LogManager.ROOT_LOGGER_NAME : loggerName;
                 LogLevelAction action = logLevel.get_action();
                 if (action == LogLevelAction.UPDATE) {
                     setLoggerLevel(logContext, loggerName, logLevel.get_target_log_level());
@@ -134,7 +136,8 @@ public class LogConfigManager {
     }
 
     public Map<String, Level> getLoggerLevels() {
-        Configuration loggerConfig = ((LoggerContext) LogManager.getContext(false)).getConfiguration();
+        Configuration loggerConfig = ((LoggerContext) LogManager.getContext(false))
+                .getConfiguration();
         Map<String, Level> logLevelMap = new HashMap<>();
         for (Map.Entry<String, LoggerConfig> entry : loggerConfig.getLoggers().entrySet()) {
             logLevelMap.put(entry.getKey(), entry.getValue().getLevel());

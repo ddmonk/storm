@@ -18,22 +18,27 @@
 
 package org.apache.storm.daemon.logviewer.utils;
 
-import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.anyMapOf;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.apache.storm.daemon.logviewer.testsupport.MockDirectoryBuilder;
-import org.apache.storm.daemon.logviewer.testsupport.MockFileBuilder;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import org.apache.storm.daemon.logviewer.testsupport.SymbolicLinks;
 import org.apache.storm.daemon.supervisor.SupervisorUtils;
+import org.apache.storm.metric.StormMetricsRegistry;
+import org.apache.storm.testing.TmpPath;
 import org.apache.storm.utils.Utils;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public class WorkerLogsTest {
 
@@ -42,33 +47,55 @@ public class WorkerLogsTest {
      */
     @Test
     public void testIdentifyWorkerLogDirs() throws Exception {
-        File port1Dir = new MockDirectoryBuilder().setDirName("/workers-artifacts/topo1/port1").build();
-        File mockMetaFile = new MockFileBuilder().setFileName("worker.yaml").build();
+        try (TmpPath testDir = new TmpPath()) {
+            Path port1Dir = Files.createDirectories(testDir.getFile().toPath().resolve("workers-artifacts/topo1/port1"));
+            Path metaFile = Files.createFile(testDir.getFile().toPath().resolve("worker.yaml"));
 
-        String expId = "id12345";
-        Map<String, File> expected = Collections.singletonMap(expId, port1Dir);
-
-        try {
+            String expId = "id12345";
+            SortedSet<Path> expected = new TreeSet<>();
+            expected.add(port1Dir);
             SupervisorUtils mockedSupervisorUtils = mock(SupervisorUtils.class);
             SupervisorUtils.setInstance(mockedSupervisorUtils);
 
             Map<String, Object> stormConf = Utils.readStormConfig();
-            WorkerLogs workerLogs = new WorkerLogs(stormConf, port1Dir) {
+            WorkerLogs workerLogs = new WorkerLogs(stormConf, port1Dir, new StormMetricsRegistry()) {
                 @Override
-                public Optional<File> getMetadataFileForWorkerLogDir(File logDir) throws IOException {
-                    return Optional.of(mockMetaFile);
+                public Optional<Path> getMetadataFileForWorkerLogDir(Path logDir) {
+                    return Optional.of(metaFile);
                 }
 
                 @Override
-                public String getWorkerIdFromMetadataFile(String metaFile) {
+                public String getWorkerIdFromMetadataFile(Path metaFile) {
                     return expId;
                 }
             };
 
-            when(mockedSupervisorUtils.readWorkerHeartbeatsImpl(anyMapOf(String.class, Object.class))).thenReturn(null);
-            assertEquals(expected, workerLogs.identifyWorkerLogDirs(Collections.singleton(port1Dir)));
+            when(mockedSupervisorUtils.readWorkerHeartbeatsImpl(anyMap())).thenReturn(null);
+            assertEquals(expected, workerLogs.getLogDirs(Collections.singleton(port1Dir), (wid) -> true));
         } finally {
             SupervisorUtils.resetInstance();
+        }
+    }
+
+    @Test
+    public void testGetAllLogsForRootDirLeavesOutSymbolicLinks() throws Exception {
+        try (TmpPath testDir = new TmpPath()) {
+            Path logRoot = testDir.getFile().toPath().resolve("workers-artifacts");
+            Path topoAPortDir = Files.createDirectories(logRoot.resolve("topoA").resolve("6700"));
+            Path topoBPortDir = Files.createDirectories(logRoot.resolve("topoB").resolve("6700"));
+            Path topoALog = Files.writeString(topoAPortDir.resolve("worker.log"), "topoA");
+            Path topoBLog = Files.writeString(topoBPortDir.resolve("worker.log"), "topoB");
+            //A file link, a port directory link and a topology directory link
+            SymbolicLinks.create(topoAPortDir.resolve("worker.log.1"), topoBLog);
+            SymbolicLinks.create(logRoot.resolve("topoA").resolve("6701"), topoBPortDir);
+            SymbolicLinks.create(logRoot.resolve("topoC"), logRoot.resolve("topoB"));
+
+            WorkerLogs workerLogs = new WorkerLogs(Utils.readStormConfig(), logRoot, new StormMetricsRegistry());
+
+            List<Path> logs = workerLogs.getAllLogsForRootDir();
+            Collections.sort(logs);
+
+            assertEquals(List.of(topoALog, topoBLog), logs);
         }
     }
 

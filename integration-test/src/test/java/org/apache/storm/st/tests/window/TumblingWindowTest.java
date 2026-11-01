@@ -21,15 +21,15 @@ import org.apache.storm.st.helper.AbstractTest;
 import org.apache.storm.st.wrapper.TopoWrap;
 import org.apache.storm.st.topology.window.TumblingTimeCorrectness;
 import org.apache.storm.st.topology.window.TumblingWindowCorrectness;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.fail;
+
 public final class TumblingWindowTest extends AbstractTest {
-    private static Logger log = LoggerFactory.getLogger(TumblingWindowTest.class);
+    private final WindowVerifier windowVerifier = new WindowVerifier();
     private TopoWrap topo;
 
     @DataProvider
@@ -52,13 +52,13 @@ public final class TumblingWindowTest extends AbstractTest {
         if (tumbleSize <= 0) {
             try {
                 testable.newTopology();
-                Assert.fail("Expected IllegalArgumentException was not thrown.");
+                fail("Expected IllegalArgumentException was not thrown.");
             } catch (IllegalArgumentException ignore) {
                 return;
             }
         }
         topo = new TopoWrap(cluster, topologyName, testable.newTopology());
-        SlidingWindowTest.runAndVerifyCount(tumbleSize, tumbleSize, testable, topo);
+        windowVerifier.runAndVerifyCount(tumbleSize, tumbleSize, testable, topo);
     }
 
     @DataProvider
@@ -79,15 +79,11 @@ public final class TumblingWindowTest extends AbstractTest {
         final TumblingTimeCorrectness testable = new TumblingTimeCorrectness(tumbleSec);
         final String topologyName = this.getClass().getSimpleName() + "-sec" + tumbleSec;
         if (tumbleSec <= 0) {
-            try {
-                testable.newTopology();
-                Assert.fail("Expected IllegalArgumentException was not thrown.");
-            } catch (IllegalArgumentException ignore) {
-                return;
-            }
+            assertThrows(IllegalArgumentException.class, () -> testable.newTopology());
+            return;
         }
         topo = new TopoWrap(cluster, topologyName, testable.newTopology());
-        SlidingWindowTest.runAndVerifyTime(tumbleSec, tumbleSec, testable, topo);
+        windowVerifier.runAndVerifyTime(tumbleSec, tumbleSec, testable, topo);
     }
 
     @AfterMethod

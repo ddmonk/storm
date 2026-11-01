@@ -1,5 +1,5 @@
 
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,7 +18,7 @@
  */
 package org.apache.storm.hdfs.blobstore;
 
-import org.apache.commons.io.FileUtils;
+import org.apache.storm.hdfs.testing.MiniDFSClusterExtension;
 import org.apache.storm.Config;
 import org.apache.storm.blobstore.AtomicOutputStream;
 import org.apache.storm.blobstore.BlobStore;
@@ -28,22 +28,15 @@ import org.apache.storm.generated.AccessControlType;
 import org.apache.storm.generated.AuthorizationException;
 import org.apache.storm.generated.KeyNotFoundException;
 import org.apache.storm.generated.SettableBlobMeta;
-import org.apache.storm.hdfs.testing.MiniDFSClusterRule;
 import org.apache.storm.security.auth.FixedGroupsMapping;
 import org.apache.storm.security.auth.NimbusPrincipal;
 import org.apache.storm.security.auth.SingleUserPrincipal;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.ClassRule;
-import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.security.auth.Subject;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URI;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -51,34 +44,34 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class BlobStoreTest {
 
-    @ClassRule
-    public static final MiniDFSClusterRule DFS_CLUSTER_RULE = new MiniDFSClusterRule();
+    @RegisterExtension
+    public static final MiniDFSClusterExtension DFS_CLUSTER_EXTENSION = new MiniDFSClusterExtension();
 
     private static final Logger LOG = LoggerFactory.getLogger(BlobStoreTest.class);
-    URI base;
-    File baseFile;
     private static final Map<String, Object> CONF = new HashMap<>();
     public static final int READ = 0x01;
-    public static final int WRITE = 0x02;
     public static final int ADMIN = 0x04;
 
-    @Before
+    @BeforeEach
     public void init() {
         initializeConfigs();
-        baseFile = new File("/tmp/blob-store-test-" + UUID.randomUUID());
-        base = baseFile.toURI();
     }
 
-    @After
-    public void cleanup()
-        throws IOException {
-        FileUtils.deleteDirectory(baseFile);
+    @AfterEach
+    public void cleanup() {
     }
 
     // Method which initializes nimbus admin
@@ -107,9 +100,8 @@ public class BlobStoreTest {
         return nimbus;
     }
 
-    // Overloading the assertStoreHasExactly method accomodate Subject in order to check for authorization
-    public static void assertStoreHasExactly(BlobStore store, Subject who, String... keys)
-        throws IOException, KeyNotFoundException, AuthorizationException {
+    // Overloading the assertStoreHasExactly method accommodate Subject in order to check for authorization
+    public static void assertStoreHasExactly(BlobStore store, Subject who, String... keys) {
         Set<String> expected = new HashSet<>(Arrays.asList(keys));
         Set<String> found = new HashSet<>();
         Iterator<String> c = store.listKeys();
@@ -119,18 +111,17 @@ public class BlobStoreTest {
         }
         Set<String> extra = new HashSet<>(found);
         extra.removeAll(expected);
-        assertTrue("Found extra keys in the blob store " + extra, extra.isEmpty());
+        assertTrue(extra.isEmpty(), "Found extra keys in the blob store " + extra);
         Set<String> missing = new HashSet<>(expected);
         missing.removeAll(found);
-        assertTrue("Found keys missing from the blob store " + missing, missing.isEmpty());
+        assertTrue(missing.isEmpty(), "Found keys missing from the blob store " + missing);
     }
 
-    public static void assertStoreHasExactly(BlobStore store, String... keys)
-        throws IOException, KeyNotFoundException, AuthorizationException {
+    public static void assertStoreHasExactly(BlobStore store, String... keys) {
         assertStoreHasExactly(store, null, keys);
     }
 
-    // Overloading the readInt method accomodate Subject in order to check for authorization (security turned on)
+    // Overloading the readInt method accommodate Subject in order to check for authorization (security turned on)
     public static int readInt(BlobStore store, Subject who, String key) throws IOException, KeyNotFoundException, AuthorizationException {
         try (InputStream in = store.getBlob(key, who)) {
             return in.read();
@@ -153,14 +144,13 @@ public class BlobStoreTest {
         assertEquals(value, readInt(store, who, key));
     }
 
-    private AutoCloseableBlobStoreContainer initHdfs(String dirName)
-        throws Exception {
+    private AutoCloseableBlobStoreContainer initHdfs(String dirName) {
         Map<String, Object> conf = new HashMap<>();
         conf.put(Config.BLOBSTORE_DIR, dirName);
         conf.put(Config.STORM_PRINCIPAL_TO_LOCAL_PLUGIN, "org.apache.storm.security.auth.DefaultPrincipalToLocal");
         conf.put(Config.STORM_BLOBSTORE_REPLICATION_FACTOR, 3);
         HdfsBlobStore store = new HdfsBlobStore();
-        store.prepareInternal(conf, null, DFS_CLUSTER_RULE.getDfscluster().getConfiguration(0));
+        store.prepareInternal(conf, null, DFS_CLUSTER_EXTENSION.getDfscluster().getConfiguration(0));
         return new AutoCloseableBlobStoreContainer(store);
     }
 
@@ -173,7 +163,7 @@ public class BlobStoreTest {
         }
 
         @Override
-        public void close() throws Exception {
+        public void close() {
             this.blobStore.shutdown();
         }
 
@@ -198,18 +188,9 @@ public class BlobStoreTest {
     @Test
     public void testMultipleHdfs()
         throws Exception {
-        // use different blobstore dir so it doesn't conflict with other test
+        // use different blobstore dir, so it doesn't conflict with other test
         try (AutoCloseableBlobStoreContainer container = initHdfs("/storm/blobstore2")) {
             testMultiple(container.blobStore);
-        }
-    }
-
-    @Test
-    public void testHdfsWithAuth()
-        throws Exception {
-        // use different blobstore dir so it doesn't conflict with other tests
-        try (AutoCloseableBlobStoreContainer container = initHdfs("/storm/blobstore3")) {
-            testWithAuthentication(container.blobStore);
         }
     }
 
@@ -222,7 +203,7 @@ public class BlobStoreTest {
             out.write(1);
         }
         assertStoreHasExactly(store, "test");
-        assertEquals("Blobstore replication not matching", store.getBlobReplication("test", null), 4);
+        assertEquals(store.getBlobReplication("test", null), 4, "Blobstore replication not matching");
         store.deleteBlob("test", null);
 
         //Test for replication with NIMBUS as user
@@ -233,9 +214,9 @@ public class BlobStoreTest {
             out.write(1);
         }
         assertStoreHasExactly(store, "test");
-        assertEquals("Blobstore replication not matching", store.getBlobReplication("test", admin), 4);
+        assertEquals(store.getBlobReplication("test", admin), 4, "Blobstore replication not matching");
         store.updateBlobReplication("test", 5, admin);
-        assertEquals("Blobstore replication not matching", store.getBlobReplication("test", admin), 5);
+        assertEquals(store.getBlobReplication("test", admin), 5, "Blobstore replication not matching");
         store.deleteBlob("test", admin);
 
         //Test for replication using SUPERVISOR access
@@ -246,9 +227,9 @@ public class BlobStoreTest {
             out.write(1);
         }
         assertStoreHasExactly(store, "test");
-        assertEquals("Blobstore replication not matching", store.getBlobReplication("test", supervisor), 4);
+        assertEquals(store.getBlobReplication("test", supervisor), 4, "Blobstore replication not matching");
         store.updateBlobReplication("test", 5, supervisor);
-        assertEquals("Blobstore replication not matching", store.getBlobReplication("test", supervisor), 5);
+        assertEquals(store.getBlobReplication("test", supervisor), 5, "Blobstore replication not matching");
         store.deleteBlob("test", supervisor);
 
         Subject adminsGroupsUser = getSubject("adminsGroupsUser");
@@ -258,9 +239,9 @@ public class BlobStoreTest {
             out.write(1);
         }
         assertStoreHasExactly(store, "test");
-        assertEquals("Blobstore replication not matching", store.getBlobReplication("test", adminsGroupsUser), 4);
+        assertEquals(store.getBlobReplication("test", adminsGroupsUser), 4, "Blobstore replication not matching");
         store.updateBlobReplication("test", 5, adminsGroupsUser);
-        assertEquals("Blobstore replication not matching", store.getBlobReplication("test", adminsGroupsUser), 5);
+        assertEquals(store.getBlobReplication("test", adminsGroupsUser), 5, "Blobstore replication not matching");
         store.deleteBlob("test", adminsGroupsUser);
 
         //Test for a user having read or write or admin access to read replication for a blob
@@ -280,142 +261,139 @@ public class BlobStoreTest {
         }
         assertStoreHasExactly(store, "test");
         who = getSubject(writeSubject);
-        assertEquals("Blobstore replication not matching", store.getBlobReplication("test", who), 4);
+        assertEquals(store.getBlobReplication("test", who), 4, "Blobstore replication not matching");
 
         //Test for a user having WRITE or ADMIN privileges to change replication of a blob
         who = getSubject(adminSubject);
         store.updateBlobReplication("test", 5, who);
-        assertEquals("Blobstore replication not matching", store.getBlobReplication("test", who), 5);
+        assertEquals(store.getBlobReplication("test", who), 5, "Blobstore replication not matching");
         store.deleteBlob("test", getSubject(createSubject));
     }
 
-    public Subject getSubject(String name) {
+    public static Subject getSubject(String name) {
         Subject subject = new Subject();
         SingleUserPrincipal user = new SingleUserPrincipal(name);
         subject.getPrincipals().add(user);
         return subject;
     }
+    
+    enum AuthenticationTestSubject {
+        //Nimbus Admin
+        ADMIN(getSubject("admin")),
+        //Nimbus groups admin
+        ADMIN_GROUPS_USER(getSubject("adminGroupsUser")),
+        //Supervisor admin
+        SUPERVISOR(getSubject("supervisor")),
+        //Nimbus itself
+        NIMBUS(getNimbusSubject());
+        
+        private final Subject subject;
 
-    // Check for Blobstore with authentication
-    public void testWithAuthentication(BlobStore store)
-        throws Exception {
-        //Test for Nimbus Admin
-        Subject admin = getSubject("admin");
-        assertStoreHasExactly(store);
-        SettableBlobMeta metadata = new SettableBlobMeta(BlobStoreAclHandler.DEFAULT);
-        try (AtomicOutputStream out = store.createBlob("test", metadata, admin)) {
+        AuthenticationTestSubject(Subject subject) {
+            this.subject = subject;
+        }
+    }
+    
+    @ParameterizedTest
+    @EnumSource(value = AuthenticationTestSubject.class)
+    void testWithAuthentication(AuthenticationTestSubject testSubject) throws Exception {
+        try (AutoCloseableBlobStoreContainer container = initHdfs("/storm/blobstore-auth-" + testSubject.name())) {
+            BlobStore store = container.blobStore;
+            assertStoreHasExactly(store);
+            SettableBlobMeta metadata = new SettableBlobMeta(BlobStoreAclHandler.DEFAULT);
+            try (AtomicOutputStream out = store.createBlob("test", metadata, testSubject.subject)) {
+                assertStoreHasExactly(store, "test");
+                out.write(1);
+            }
+            store.deleteBlob("test", testSubject.subject);
+        }
+    }
+    
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testWithAuthenticationDummy(boolean securityEnabled) throws Exception {
+        try (AutoCloseableBlobStoreContainer container = initHdfs("/storm/blobstore-auth-dummy-sec-" + securityEnabled)) {
+            BlobStore store = container.blobStore;
+            Subject who = getSubject("test_subject");
+            assertStoreHasExactly(store);
+
+            // Tests for case when subject != null (security turned on) and
+            // acls for the blob are set to WORLD_EVERYTHING
+            SettableBlobMeta metadata = new SettableBlobMeta(securityEnabled ? BlobStoreAclHandler.DEFAULT : BlobStoreAclHandler.WORLD_EVERYTHING);
+            try (AtomicOutputStream out = store.createBlob("test", metadata, who)) {
+                out.write(1);
+            }
             assertStoreHasExactly(store, "test");
-            out.write(1);
-        }
-        store.deleteBlob("test", admin);
+            if (securityEnabled) {
+                // Testing whether acls are set to WORLD_EVERYTHING. Here the acl should not contain WORLD_EVERYTHING because
+                // the subject is neither null nor empty. The ACL should however contain USER_EVERYTHING as user needs to have
+                // complete access to the blob
+                assertFalse(metadata.toString().contains("AccessControl(type:OTHER, access:7)"), "ACL contains WORLD_EVERYTHING");
+            } else {
+                // Testing whether acls are set to WORLD_EVERYTHING
+                assertTrue(metadata.toString().contains("AccessControl(type:OTHER, access:7)"), "ACL does not contain WORLD_EVERYTHING");
+            }
+            
+            readAssertEqualsWithAuth(store, who, "test", 1);
 
-        //Test for Nimbus Groups Admin
-        Subject adminsGroupsUser = getSubject("adminsGroupsUser");
-        assertStoreHasExactly(store);
-        metadata = new SettableBlobMeta(BlobStoreAclHandler.DEFAULT);
-        try (AtomicOutputStream out = store.createBlob("test", metadata, adminsGroupsUser)) {
+            LOG.info("Deleting test");
+            store.deleteBlob("test", who);
+            assertStoreHasExactly(store);
+        }
+    }
+    
+    @Test
+    void testWithAuthenticationUpdate() throws Exception {
+        try (AutoCloseableBlobStoreContainer container = initHdfs("/storm/blobstore-auth-update")) {
+            BlobStore store = container.blobStore;
+            Subject who = getSubject("test_subject");
+            assertStoreHasExactly(store);
+
+            SettableBlobMeta metadata = new SettableBlobMeta(BlobStoreAclHandler.DEFAULT);
+            try (AtomicOutputStream out = store.createBlob("test", metadata, who)) {
+                out.write(1);
+            }
             assertStoreHasExactly(store, "test");
-            out.write(1);
-        }
-        store.deleteBlob("test", adminsGroupsUser);
-
-        //Test for Supervisor Admin
-        Subject supervisor = getSubject("supervisor");
-        assertStoreHasExactly(store);
-        metadata = new SettableBlobMeta(BlobStoreAclHandler.DEFAULT);
-        try (AtomicOutputStream out = store.createBlob("test", metadata, supervisor)) {
+            readAssertEqualsWithAuth(store, who, "test", 1);
+            
+            try (AtomicOutputStream out = store.updateBlob("test", who)) {
+                out.write(2);
+            }
             assertStoreHasExactly(store, "test");
-            out.write(1);
-        }
-        store.deleteBlob("test", supervisor);
-
-        //Test for Nimbus itself as a user
-        Subject nimbus = getNimbusSubject();
-        assertStoreHasExactly(store);
-        metadata = new SettableBlobMeta(BlobStoreAclHandler.DEFAULT);
-        try (AtomicOutputStream out = store.createBlob("test", metadata, nimbus)) {
+            readAssertEqualsWithAuth(store, who, "test", 2);
+            
+            try (AtomicOutputStream out = store.updateBlob("test", who)) {
+                out.write(3);
+            }
             assertStoreHasExactly(store, "test");
-            out.write(1);
+            readAssertEqualsWithAuth(store, who, "test", 3);
+
+            LOG.info("Deleting test");
+            store.deleteBlob("test", who);
+            assertStoreHasExactly(store);
         }
-        store.deleteBlob("test", nimbus);
+    }
+    
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testWithAuthenticationNoPrincipal(boolean securityEnabled) throws Exception {
+        try (AutoCloseableBlobStoreContainer container = initHdfs("/storm/blobstore-auth-no-principal-sec-" + securityEnabled)) {
+            BlobStore store = container.blobStore;
+            //Test for subject with no principals
+            Subject who = new Subject();
+            assertStoreHasExactly(store);
 
-        // Test with a dummy test_subject for cases where subject !=null (security turned on)
-        Subject who = getSubject("test_subject");
-        assertStoreHasExactly(store);
-
-        // Tests for case when subject != null (security turned on) and
-        // acls for the blob are set to WORLD_EVERYTHING
-        metadata = new SettableBlobMeta(BlobStoreAclHandler.WORLD_EVERYTHING);
-        try (AtomicOutputStream out = store.createBlob("test", metadata, who)) {
-            out.write(1);
-        }
-        assertStoreHasExactly(store, "test");
-        // Testing whether acls are set to WORLD_EVERYTHING
-        assertTrue("ACL does not contain WORLD_EVERYTHING", metadata.toString().contains("AccessControl(type:OTHER, access:7)"));
-        readAssertEqualsWithAuth(store, who, "test", 1);
-
-        LOG.info("Deleting test");
-        store.deleteBlob("test", who);
-        assertStoreHasExactly(store);
-
-        // Tests for case when subject != null (security turned on) and
-        // acls are not set for the blob (DEFAULT)
-        LOG.info("Creating test again");
-        metadata = new SettableBlobMeta(BlobStoreAclHandler.DEFAULT);
-        try (AtomicOutputStream out = store.createBlob("test", metadata, who)) {
-            out.write(2);
-        }
-        assertStoreHasExactly(store, "test");
-        // Testing whether acls are set to WORLD_EVERYTHING. Here the acl should not contain WORLD_EVERYTHING because
-        // the subject is neither null nor empty. The ACL should however contain USER_EVERYTHING as user needs to have
-        // complete access to the blob
-        assertTrue("ACL does not contain WORLD_EVERYTHING", !metadata.toString().contains("AccessControl(type:OTHER, access:7)"));
-        readAssertEqualsWithAuth(store, who, "test", 2);
-
-        LOG.info("Updating test");
-        try (AtomicOutputStream out = store.updateBlob("test", who)) {
-            out.write(3);
-        }
-        assertStoreHasExactly(store, "test");
-        readAssertEqualsWithAuth(store, who, "test", 3);
-
-        LOG.info("Updating test again");
-        try (AtomicOutputStream out = store.updateBlob("test", who)) {
-            out.write(4);
-        }
-        LOG.info("SLEEPING");
-        Thread.sleep(2);
-        assertStoreHasExactly(store, "test");
-        readAssertEqualsWithAuth(store, who, "test", 3);
-
-        //Test for subject with no principals and acls set to WORLD_EVERYTHING
-        who = new Subject();
-        metadata = new SettableBlobMeta(BlobStoreAclHandler.WORLD_EVERYTHING);
-        LOG.info("Creating test");
-        try (AtomicOutputStream out = store.createBlob("test-empty-subject-WE", metadata, who)) {
-            out.write(2);
-        }
-        assertStoreHasExactly(store, "test-empty-subject-WE", "test");
-        // Testing whether acls are set to WORLD_EVERYTHING
-        assertTrue("ACL does not contain WORLD_EVERYTHING", metadata.toString().contains("AccessControl(type:OTHER, access:7)"));
-        readAssertEqualsWithAuth(store, who, "test-empty-subject-WE", 2);
-
-        //Test for subject with no principals and acls set to DEFAULT
-        who = new Subject();
-        metadata = new SettableBlobMeta(BlobStoreAclHandler.DEFAULT);
-        LOG.info("Creating other");
-        try (AtomicOutputStream out = store.createBlob("test-empty-subject-DEF", metadata, who)) {
-            out.write(2);
-        }
-        assertStoreHasExactly(store, "test-empty-subject-DEF", "test", "test-empty-subject-WE");
-        // Testing whether acls are set to WORLD_EVERYTHING
-        assertTrue("ACL does not contain WORLD_EVERYTHING", metadata.toString().contains("AccessControl(type:OTHER, access:7)"));
-        readAssertEqualsWithAuth(store, who, "test-empty-subject-DEF", 2);
-
-        if (store instanceof HdfsBlobStore) {
-            ((HdfsBlobStore) store).fullCleanup(1);
-        } else {
-            fail("Error the blobstore is of unknowntype");
+            // Tests for case when subject != null (security turned on) and
+            // acls for the blob are set to WORLD_EVERYTHING
+            SettableBlobMeta metadata = new SettableBlobMeta(securityEnabled ? BlobStoreAclHandler.DEFAULT : BlobStoreAclHandler.WORLD_EVERYTHING);
+            try (AtomicOutputStream out = store.createBlob("test", metadata, who)) {
+                out.write(1);
+            }
+            assertStoreHasExactly(store, "test");
+            // With no principals in the subject ACL should always be set to WORLD_EVERYTHING
+            assertTrue(metadata.toString().contains("AccessControl(type:OTHER, access:7)"), "ACL does not contain WORLD_EVERYTHING");
+            
+            readAssertEqualsWithAuth(store, who, "test", 1);
         }
     }
 
@@ -431,7 +409,7 @@ public class BlobStoreTest {
         }
         assertStoreHasExactly(store, "test");
         // Testing whether acls are set to WORLD_EVERYTHING
-        assertTrue("ACL does not contain WORLD_EVERYTHING", metadata.toString().contains("AccessControl(type:OTHER, access:7)"));
+        assertTrue(metadata.toString().contains("AccessControl(type:OTHER, access:7)"), "ACL does not contain WORLD_EVERYTHING");
         readAssertEquals(store, "test", 1);
 
         LOG.info("Deleting test");
@@ -535,6 +513,6 @@ public class BlobStoreTest {
             fail("Error the blobstore is of unknowntype");
         }
         assertStoreHasExactly(store, "test");
-        readAssertEquals(store, "test", 3);
+        readAssertEquals(store, "test", 4);
     }
 }

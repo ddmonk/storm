@@ -210,7 +210,7 @@ public class GenLoad {
         metricServer.serve();
         String url = metricServer.getUrl();
         int exitStatus = -1;
-        try (NimbusClient client = NimbusClient.getConfiguredClient(conf);
+        try (NimbusClient client = NimbusClient.Builder.withConf(conf).build();
              ScopedTopologySet topoNames = new ScopedTopologySet(client.getClient())) {
             for (String topoFile : cmd.getArgList()) {
                 try {
@@ -266,7 +266,7 @@ public class GenLoad {
         //For some reason on the new code if ackers is null we get 0???
         Object ackers = conf.get(Config.TOPOLOGY_ACKER_EXECUTORS);
         Object workers = conf.get(Config.TOPOLOGY_WORKERS);
-        if (ackers == null || ((Number)ackers).intValue() <= 0) {
+        if (ackers == null || ((Number) ackers).intValue() <= 0) {
             if (workers == null) {
                 workers = 1;
             }

@@ -1,25 +1,16 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
-package org.apache.storm.container.cgroup;
 
-import org.apache.storm.container.cgroup.core.CgroupCore;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+package org.apache.storm.container.cgroup;
 
 import java.io.File;
 import java.io.IOException;
@@ -27,6 +18,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.storm.container.cgroup.core.CgroupCore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class CgroupCommon implements CgroupCommonOperation {
 
@@ -36,18 +30,12 @@ public class CgroupCommon implements CgroupCommonOperation {
     public static final String CGROUP_CLONE_CHILDREN = "/cgroup.clone_children";
     public static final String CGROUP_EVENT_CONTROL = "/cgroup.event_control";
     public static final String CGROUP_PROCS = "/cgroup.procs";
-
-    private final Hierarchy hierarchy;
-
-    private final String name;
-
-    private final String dir;
-
-    private final CgroupCommon parent;
-
-    private final boolean isRoot;
-
     private static final Logger LOG = LoggerFactory.getLogger(CgroupCommon.class);
+    private final Hierarchy hierarchy;
+    private final String name;
+    private final String dir;
+    private final CgroupCommon parent;
+    private final boolean isRoot;
 
     public CgroupCommon(String name, Hierarchy hierarchy, CgroupCommon parent) {
         this.name = parent.getName() + "/" + name;
@@ -57,9 +45,6 @@ public class CgroupCommon implements CgroupCommonOperation {
         this.isRoot = false;
     }
 
-    /**
-     * rootCgroup
-     */
     public CgroupCommon(Hierarchy hierarchy, String dir) {
         this.name = "";
         this.hierarchy = hierarchy;
@@ -85,12 +70,14 @@ public class CgroupCommon implements CgroupCommonOperation {
 
     @Override
     public void addProcs(int pid) throws IOException {
-        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, CGROUP_PROCS), String.valueOf(pid));
+        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, CGROUP_PROCS), String
+                .valueOf(pid));
     }
 
     @Override
     public Set<Long> getPids() throws IOException {
-        List<String> stringPids = CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, CGROUP_PROCS));
+        List<String> stringPids = CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir,
+                CGROUP_PROCS));
         Set<Long> pids = new HashSet<>();
         for (String task : stringPids) {
             pids.add(Long.valueOf(task));
@@ -99,32 +86,42 @@ public class CgroupCommon implements CgroupCommonOperation {
     }
 
     @Override
-    public void setNotifyOnRelease(boolean flag) throws IOException {
-
-        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, NOTIFY_ON_RELEASE), flag ? "1" : "0");
+    public boolean getNotifyOnRelease() throws IOException {
+        return CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, NOTIFY_ON_RELEASE)).get(0)
+                .equals("1") ? true : false;
     }
 
     @Override
-    public boolean getNotifyOnRelease() throws IOException {
-        return CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, NOTIFY_ON_RELEASE)).get(0).equals("1") ? true : false;
+    public void setNotifyOnRelease(boolean flag) throws IOException {
+
+        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, NOTIFY_ON_RELEASE), flag
+                ? "1" : "0");
+    }
+
+    @Override
+    public String getReleaseAgent() throws IOException {
+        if (!this.isRoot) {
+            LOG.warn("Cannot get {} in {} since its not the root group", RELEASE_AGENT,
+                    this.isRoot);
+            return null;
+        }
+        return CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, RELEASE_AGENT)).get(0);
     }
 
     @Override
     public void setReleaseAgent(String command) throws IOException {
         if (!this.isRoot) {
-            LOG.warn("Cannot set {} in {} since its not the root group", RELEASE_AGENT, this.isRoot);
+            LOG.warn("Cannot set {} in {} since its not the root group", RELEASE_AGENT,
+                    this.isRoot);
             return;
         }
         CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, RELEASE_AGENT), command);
     }
 
     @Override
-    public String getReleaseAgent() throws IOException {
-        if (!this.isRoot) {
-            LOG.warn("Cannot get {} in {} since its not the root group", RELEASE_AGENT, this.isRoot);
-            return null;
-        }
-        return CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, RELEASE_AGENT)).get(0);
+    public boolean getCgroupCloneChildren() throws IOException {
+        return CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, CGROUP_CLONE_CHILDREN))
+                .get(0).equals("1") ? true : false;
     }
 
     @Override
@@ -132,16 +129,13 @@ public class CgroupCommon implements CgroupCommonOperation {
         if (!getCores().keySet().contains(SubSystemType.cpuset)) {
             return;
         }
-        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, CGROUP_CLONE_CHILDREN), flag ? "1" : "0");
+        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, CGROUP_CLONE_CHILDREN), flag
+                ? "1" : "0");
     }
 
     @Override
-    public boolean getCgroupCloneChildren() throws IOException {
-        return CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, CGROUP_CLONE_CHILDREN)).get(0).equals("1") ? true : false;
-    }
-
-    @Override
-    public void setEventControl(String eventFd, String controlFd, String... args) throws IOException {
+    public void setEventControl(String eventFd, String controlFd,
+        String... args) throws IOException {
         StringBuilder sb = new StringBuilder();
         sb.append(eventFd);
         sb.append(' ');
@@ -150,7 +144,8 @@ public class CgroupCommon implements CgroupCommonOperation {
             sb.append(' ');
             sb.append(arg);
         }
-        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, CGROUP_EVENT_CONTROL), sb.toString());
+        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, CGROUP_EVENT_CONTROL), sb
+                .toString());
     }
 
     public Hierarchy getHierarchy() {
@@ -222,28 +217,28 @@ public class CgroupCommon implements CgroupCommonOperation {
         boolean ret = false;
         if (o != null && (o instanceof CgroupCommon)) {
 
-            boolean hierarchyFlag =false;
-            if (((CgroupCommon)o).hierarchy != null && this.hierarchy != null) {
-                hierarchyFlag = ((CgroupCommon)o).hierarchy.equals(this.hierarchy);
-            } else if (((CgroupCommon)o).hierarchy == null && this.hierarchy == null) {
+            boolean hierarchyFlag = false;
+            if (((CgroupCommon) o).hierarchy != null && this.hierarchy != null) {
+                hierarchyFlag = ((CgroupCommon) o).hierarchy.equals(this.hierarchy);
+            } else if (((CgroupCommon) o).hierarchy == null && this.hierarchy == null) {
                 hierarchyFlag = true;
             } else {
                 hierarchyFlag = false;
             }
 
             boolean nameFlag = false;
-            if (((CgroupCommon)o).name != null && this.name != null) {
-                nameFlag = ((CgroupCommon)o).name.equals(this.name);
-            } else if (((CgroupCommon)o).name == null && this.name == null) {
+            if (((CgroupCommon) o).name != null && this.name != null) {
+                nameFlag = ((CgroupCommon) o).name.equals(this.name);
+            } else if (((CgroupCommon) o).name == null && this.name == null) {
                 nameFlag = true;
             } else {
                 nameFlag = false;
             }
 
             boolean dirFlag = false;
-            if (((CgroupCommon)o).dir != null && this.dir != null) {
-                dirFlag = ((CgroupCommon)o).dir.equals(this.dir);
-            } else if (((CgroupCommon)o).dir == null && this.dir == null) {
+            if (((CgroupCommon) o).dir != null && this.dir != null) {
+                dirFlag = ((CgroupCommon) o).dir.equals(this.dir);
+            } else if (((CgroupCommon) o).dir == null && this.dir == null) {
                 dirFlag = true;
             } else {
                 dirFlag = false;

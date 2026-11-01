@@ -15,8 +15,13 @@
  */
 package org.apache.storm.kafka.spout;
 
+import static org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration.createKafkaSpoutConfigBuilder;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
@@ -24,39 +29,31 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration;
+import org.apache.storm.kafka.spout.subscription.ManualPartitioner;
+import org.apache.storm.kafka.spout.subscription.TopicFilter;
 import org.apache.storm.spout.SpoutOutputCollector;
 import org.apache.storm.task.TopologyContext;
 import org.apache.storm.utils.Time;
 import org.apache.storm.utils.Time.SimulatedTime;
-import org.junit.Before;
-import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
-import static org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration.createKafkaSpoutConfigBuilder;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyObject;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 
-import org.apache.kafka.clients.consumer.internals.PartitionAssignor.Subscription;
-import org.apache.storm.kafka.spout.subscription.ManualPartitioner;
-import org.apache.storm.kafka.spout.subscription.TopicFilter;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class KafkaSpoutEmitTest {
 
@@ -68,7 +65,7 @@ public class KafkaSpoutEmitTest {
     private KafkaConsumer<String, String> consumerMock;
     private KafkaSpoutConfig<String, String> spoutConfig;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         spoutConfig = createKafkaSpoutConfigBuilder(mock(TopicFilter.class), mock(ManualPartitioner.class), -1)
             .setOffsetCommitPeriodMs(offsetCommitPeriodMs)
@@ -84,7 +81,7 @@ public class KafkaSpoutEmitTest {
         Map<TopicPartition, List<ConsumerRecord<String, String>>> records = new HashMap<>();
         records.put(partition, SpoutWithMockedConsumerSetupHelper.createRecords(partition, 0, 10));
 
-        when(consumerMock.poll(anyLong()))
+        when(consumerMock.poll(any(Duration.class)))
             .thenReturn(new ConsumerRecords<>(records));
 
         spout.nextTuple();
@@ -104,7 +101,7 @@ public class KafkaSpoutEmitTest {
             //This is cheating a bit since maxPollRecords would normally spread this across multiple polls
             records.put(partition, SpoutWithMockedConsumerSetupHelper.createRecords(partition, 0, numRecords));
 
-            when(consumerMock.poll(anyLong()))
+            when(consumerMock.poll(any(Duration.class)))
                 .thenReturn(new ConsumerRecords<>(records));
 
             for (int i = 0; i < numRecords; i++) {
@@ -136,7 +133,7 @@ public class KafkaSpoutEmitTest {
             }
             InOrder inOrder = inOrder(consumerMock);
             inOrder.verify(consumerMock).seek(partition, failedOffsets.get(0));
-            inOrder.verify(consumerMock).poll(anyLong());
+            inOrder.verify(consumerMock).poll(any(Duration.class));
         }
     }
 
@@ -152,7 +149,7 @@ public class KafkaSpoutEmitTest {
             records.put(partitionTwo, SpoutWithMockedConsumerSetupHelper.createRecords(partitionTwo, 0, spoutConfig.getMaxUncommittedOffsets() + 1));
             int numMessages = spoutConfig.getMaxUncommittedOffsets()*2 + 1;
 
-            when(consumerMock.poll(anyLong()))
+            when(consumerMock.poll(any(Duration.class)))
                 .thenReturn(new ConsumerRecords<>(records));
 
             for (int i = 0; i < numMessages; i++) {
@@ -179,19 +176,19 @@ public class KafkaSpoutEmitTest {
             reset(collectorMock);
             
             Time.advanceTime(50);
-            when(consumerMock.poll(anyLong()))
+            when(consumerMock.poll(any(Duration.class)))
                 .thenReturn(new ConsumerRecords<>(Collections.singletonMap(partition, SpoutWithMockedConsumerSetupHelper.createRecords(partition, failedMessageIdPartitionOne.get().offset(), 1))));
             
             spout.nextTuple();
             
-            verify(collectorMock, times(1)).emit(anyObject(), anyObject(), anyObject());
+            verify(collectorMock, times(1)).emit(anyString(), anyList(), any());
             
             InOrder inOrder = inOrder(consumerMock);
             inOrder.verify(consumerMock).seek(partition, failedMessageIdPartitionOne.get().offset());
             //Should not seek on the paused partition
             inOrder.verify(consumerMock, never()).seek(eq(partitionTwo), anyLong());
             inOrder.verify(consumerMock).pause(Collections.singleton(partitionTwo));
-            inOrder.verify(consumerMock).poll(anyLong());
+            inOrder.verify(consumerMock).poll(any(Duration.class));
             inOrder.verify(consumerMock).resume(Collections.singleton(partitionTwo));
             
             reset(collectorMock);
@@ -199,7 +196,7 @@ public class KafkaSpoutEmitTest {
             //Now also check that no more tuples are polled for, since both partitions are at their limits
             spout.nextTuple();
 
-            verify(collectorMock, never()).emit(anyObject(), anyObject(), anyObject());
+            verify(collectorMock, never()).emit(anyString(), anyList(), any());
         }
     }
 

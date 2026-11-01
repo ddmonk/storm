@@ -1,24 +1,30 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
+
 package org.apache.storm.streams;
 
-import com.google.common.collect.Multimap;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 import org.apache.storm.generated.GlobalStreamId;
+import org.apache.storm.generated.Grouping;
+import org.apache.storm.shade.com.google.common.collect.Multimap;
+import org.apache.storm.shade.org.jgrapht.Graph;
+import org.apache.storm.shade.org.jgrapht.graph.DefaultDirectedGraph;
 import org.apache.storm.streams.operations.aggregators.LongSum;
 import org.apache.storm.streams.processors.AggregateProcessor;
 import org.apache.storm.streams.processors.FilterProcessor;
@@ -28,25 +34,13 @@ import org.apache.storm.task.TopologyContext;
 import org.apache.storm.tuple.Fields;
 import org.apache.storm.tuple.Tuple;
 import org.apache.storm.tuple.Values;
-import org.jgrapht.DirectedGraph;
-import org.jgrapht.graph.DefaultDirectedGraph;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import org.apache.storm.generated.Grouping;
-
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-
 /**
- * Unit tests for {@link ProcessorBolt}
+ * Unit tests for {@link ProcessorBolt}.
  */
 public class ProcessorBoltTest {
     TopologyContext mockTopologyContext;
@@ -57,9 +51,9 @@ public class ProcessorBoltTest {
     Tuple mockTuple3;
     Tuple punctuation;
     Multimap<String, ProcessorNode> mockStreamToProcessors;
-    DirectedGraph<Node, Edge> graph;
+    Graph<Node, Edge> graph;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         mockTopologyContext = Mockito.mock(TopologyContext.class);
         mockOutputCollector = Mockito.mock(OutputCollector.class);
@@ -70,12 +64,12 @@ public class ProcessorBoltTest {
         punctuation = Mockito.mock(Tuple.class);
         setUpPunctuation(punctuation);
         mockStreamToProcessors = Mockito.mock(Multimap.class);
-        graph = new DefaultDirectedGraph(new StreamsEdgeFactory());
+        graph = new DefaultDirectedGraph<>(null, null, false);
 
     }
 
     @Test
-    public void testEmitAndAck() throws Exception {
+    public void testEmitAndAck() {
         setUpProcessorBolt(new FilterProcessor<Integer>(x -> true));
         bolt.execute(mockTuple1);
         ArgumentCaptor<Collection> anchor = ArgumentCaptor.forClass(Collection.class);
@@ -83,32 +77,38 @@ public class ProcessorBoltTest {
         ArgumentCaptor<String> os = ArgumentCaptor.forClass(String.class);
         Mockito.verify(mockOutputCollector).emit(os.capture(), anchor.capture(), values.capture());
         assertEquals("outputstream", os.getValue());
-        assertArrayEquals(new Object[]{mockTuple1}, anchor.getValue().toArray());
+        assertArrayEquals(new Object[] {mockTuple1}, anchor.getValue().toArray());
         assertEquals(new Values(100), values.getValue());
         Mockito.verify(mockOutputCollector, Mockito.times(1)).ack(mockTuple1);
     }
 
     @Test
-    public void testAggResultAndAck() throws Exception {
-        setUpProcessorBolt(new AggregateProcessor<>(new LongSum()), Collections.singleton("inputstream"), true, null);
+    public void testAggResultAndAck() {
+        setUpProcessorBolt(new AggregateProcessor<>(new LongSum()), Collections
+                .singleton("inputstream"), true, null);
         bolt.execute(mockTuple2);
         bolt.execute(mockTuple3);
         bolt.execute(punctuation);
         ArgumentCaptor<Collection> anchor = ArgumentCaptor.forClass(Collection.class);
         ArgumentCaptor<Values> values = ArgumentCaptor.forClass(Values.class);
         ArgumentCaptor<String> os = ArgumentCaptor.forClass(String.class);
-        Mockito.verify(mockOutputCollector, Mockito.times(2)).emit(os.capture(), anchor.capture(), values.capture());
-        assertArrayEquals(new Object[]{mockTuple2, mockTuple3, punctuation}, anchor.getAllValues().get(0).toArray());
-        assertArrayEquals(new Object[]{mockTuple2, mockTuple3, punctuation}, anchor.getAllValues().get(1).toArray());
-        assertArrayEquals(new Object[]{new Values(200L), new Values("__punctuation")}, values.getAllValues().toArray());
-        assertArrayEquals(new Object[]{"outputstream", "outputstream__punctuation"}, os.getAllValues().toArray());
+        Mockito.verify(mockOutputCollector, Mockito.times(2)).emit(os.capture(), anchor.capture(),
+                values.capture());
+        assertArrayEquals(new Object[] {mockTuple2, mockTuple3, punctuation}, anchor.getAllValues()
+                .get(0).toArray());
+        assertArrayEquals(new Object[] {mockTuple2, mockTuple3, punctuation}, anchor.getAllValues()
+                .get(1).toArray());
+        assertArrayEquals(new Object[] {new Values(200L), new Values("__punctuation")}, values
+                .getAllValues().toArray());
+        assertArrayEquals(new Object[] {"outputstream", "outputstream__punctuation"}, os
+                .getAllValues().toArray());
         Mockito.verify(mockOutputCollector).ack(mockTuple2);
         Mockito.verify(mockOutputCollector).ack(mockTuple3);
         Mockito.verify(mockOutputCollector).ack(punctuation);
     }
 
     @Test
-    public void testEmitTs() throws Exception {
+    public void testEmitTs() {
         Tuple tupleWithTs = Mockito.mock(Tuple.class);
         setUpMockTuples(tupleWithTs);
         Mockito.when(tupleWithTs.getLongByField("ts")).thenReturn(12345L);
@@ -119,7 +119,7 @@ public class ProcessorBoltTest {
         ArgumentCaptor<String> os = ArgumentCaptor.forClass(String.class);
         Mockito.verify(mockOutputCollector).emit(os.capture(), anchor.capture(), values.capture());
         assertEquals("outputstream", os.getValue());
-        assertArrayEquals(new Object[]{tupleWithTs}, anchor.getValue().toArray());
+        assertArrayEquals(new Object[] {tupleWithTs}, anchor.getValue().toArray());
         assertEquals(new Values(100, 12345L), values.getValue());
         Mockito.verify(mockOutputCollector, Mockito.times(1)).ack(tupleWithTs);
     }
@@ -139,15 +139,18 @@ public class ProcessorBoltTest {
         ProcessorNode node = new ProcessorNode(processor, "outputstream", new Fields("value"));
         node.setWindowedParentStreams(windowedParentStreams);
         node.setWindowed(isWindowed);
-        Mockito.when(mockStreamToProcessors.get(Mockito.anyString())).thenReturn(Collections.singletonList(node));
-        Mockito.when(mockStreamToProcessors.keySet()).thenReturn(Collections.singleton("inputstream"));
+        Mockito.when(mockStreamToProcessors.get(Mockito.anyString())).thenReturn(Collections
+                .singletonList(node));
+        Mockito.when(mockStreamToProcessors.keySet()).thenReturn(Collections
+                .singleton("inputstream"));
         Map<GlobalStreamId, Grouping> mockSources = Mockito.mock(Map.class);
         GlobalStreamId mockGlobalStreamId = Mockito.mock(GlobalStreamId.class);
         Mockito.when(mockTopologyContext.getThisSources()).thenReturn(mockSources);
         Mockito.when(mockSources.keySet()).thenReturn(Collections.singleton(mockGlobalStreamId));
         Mockito.when(mockGlobalStreamId.get_streamId()).thenReturn("inputstream");
         Mockito.when(mockGlobalStreamId.get_componentId()).thenReturn("bolt0");
-        Mockito.when(mockTopologyContext.getComponentTasks(Mockito.anyString())).thenReturn(Collections.singletonList(1));
+        Mockito.when(mockTopologyContext.getComponentTasks(Mockito.anyString()))
+                .thenReturn(Collections.singletonList(1));
         graph.addVertex(node);
         bolt = new ProcessorBolt("bolt1", graph, Collections.singletonList(node));
         if (tsFieldName != null && !tsFieldName.isEmpty()) {

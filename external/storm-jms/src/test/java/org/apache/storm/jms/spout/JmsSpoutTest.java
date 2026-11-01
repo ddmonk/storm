@@ -15,35 +15,36 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.storm.jms.spout;
 
+import jakarta.jms.ConnectionFactory;
+import jakarta.jms.Destination;
+import jakarta.jms.JMSException;
+import jakarta.jms.Message;
+import jakarta.jms.MessageProducer;
+import jakarta.jms.Session;
+import jakarta.jms.TextMessage;
 import org.apache.storm.Config;
 import org.apache.storm.jms.JmsProvider;
 import org.apache.storm.spout.SpoutOutputCollector;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.jms.ConnectionFactory;
-import javax.jms.Destination;
-import javax.jms.JMSException;
-import javax.jms.Message;
-import javax.jms.MessageProducer;
-import javax.jms.Session;
-import javax.jms.TextMessage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 public class JmsSpoutTest {
-    private static final Logger LOG =
-            LoggerFactory.getLogger(JmsSpoutTest.class);
+    private static final Logger LOG = LoggerFactory.getLogger(JmsSpoutTest.class);
 
     @Test
-    public void testFailure() throws JMSException, Exception {
+    public void testFailure() throws Exception {
         JmsSpout spout = new JmsSpout();
         try {
             JmsProvider mockProvider = new MockJmsProvider();
@@ -53,7 +54,6 @@ public class JmsSpoutTest {
             spout.setJmsProvider(new MockJmsProvider());
             spout.setJmsTupleProducer(new MockTupleProducer());
             spout.setJmsAcknowledgeMode(Session.CLIENT_ACKNOWLEDGE);
-            spout.setRecoveryPeriodMs(10); // Rapid recovery for testing.
             spout.open(new HashMap<>(), null, collector);
             ConnectionFactory connectionFactory = mockProvider.connectionFactory();
             Destination destination = mockProvider.destination();
@@ -61,14 +61,14 @@ public class JmsSpoutTest {
             Thread.sleep(100);
             LOG.info("Calling nextTuple on the spout...");
             spout.nextTuple(); // Pretend to be storm.
-            Assert.assertTrue(mockCollector.emitted);
+            assertTrue(mockCollector.emitted);
 
             mockCollector.reset();
             spout.fail(msg.getJMSMessageID()); // Mock failure
             Thread.sleep(5000);
             spout.nextTuple(); // Pretend to be storm.
             Thread.sleep(5000);
-            Assert.assertTrue(mockCollector.emitted); // Should have been re-emitted
+            assertTrue(mockCollector.emitted); // Should have been re-emitted
         } finally {
             spout.close();
         }
@@ -81,13 +81,12 @@ public class JmsSpoutTest {
         ObjectOutputStream oos = new ObjectOutputStream(out);
         oos.writeObject(spout);
         oos.close();
-        Assert.assertTrue(out.toByteArray().length > 0);
+        assertTrue(out.toByteArray().length > 0);
     }
 
     /**
-     * Make sure that {@link JmsSpout#open} returns correctly regardless of
-     * the type of {@link Number} that is the value of
-     * {@link Config#TOPOLOGY_MESSAGE_TIMEOUT_SECS}.
+     * Make sure that {@link JmsSpout#open} returns correctly regardless of the type of {@link Number} that is the value of {@link
+     * Config#TOPOLOGY_MESSAGE_TIMEOUT_SECS}.
      */
     @Test
     public void testOpenWorksMultipleTypesOfNumberObjects() throws Exception {
@@ -95,7 +94,7 @@ public class JmsSpoutTest {
         try {
             spout.setJmsProvider(new MockJmsProvider());
             spout.setJmsTupleProducer(new MockTupleProducer());
-            Map<String, Object> configuration = new HashMap<String, Object>();
+            Map<String, Object> configuration = new HashMap<>();
             MockSpoutOutputCollector delegateCollector =
                 new MockSpoutOutputCollector();
             SpoutOutputCollector collector =
@@ -118,8 +117,8 @@ public class JmsSpoutTest {
                                Destination destination) throws JMSException {
 
         Session mySess = connectionFactory.createConnection().createSession(
-                false,
-                Session.CLIENT_ACKNOWLEDGE);
+            false,
+            Session.CLIENT_ACKNOWLEDGE);
         MessageProducer producer = mySess.createProducer(destination);
         TextMessage msg = mySess.createTextMessage();
         msg.setText("Hello World");

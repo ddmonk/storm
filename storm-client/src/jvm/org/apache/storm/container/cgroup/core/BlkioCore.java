@@ -1,30 +1,24 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
-package org.apache.storm.container.cgroup.core;
 
-import org.apache.storm.container.cgroup.CgroupUtils;
-import org.apache.storm.container.cgroup.SubSystemType;
-import org.apache.storm.container.cgroup.Device;
+package org.apache.storm.container.cgroup.core;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.storm.container.cgroup.CgroupUtils;
+import org.apache.storm.container.cgroup.Device;
+import org.apache.storm.container.cgroup.SubSystemType;
 
 public class BlkioCore implements CgroupCore {
 
@@ -35,7 +29,8 @@ public class BlkioCore implements CgroupCore {
     public static final String BLKIO_THROTTLE_READ_BPS_DEVICE = "/blkio.throttle.read_bps_device";
     public static final String BLKIO_THROTTLE_WRITE_BPS_DEVICE = "/blkio.throttle.write_bps_device";
     public static final String BLKIO_THROTTLE_READ_IOPS_DEVICE = "/blkio.throttle.read_iops_device";
-    public static final String BLKIO_THROTTLE_WRITE_IOPS_DEVICE = "/blkio.throttle.write_iops_device";
+    public static final String BLKIO_THROTTLE_WRITE_IOPS_DEVICE =
+            "/blkio.throttle.write_iops_device";
 
     public static final String BLKIO_THROTTLE_IO_SERVICED = "/blkio.throttle.io_serviced";
     public static final String BLKIO_THROTTLE_IO_SERVICE_BYTES = "/blkio.throttle.io_service_bytes";
@@ -60,21 +55,25 @@ public class BlkioCore implements CgroupCore {
         return SubSystemType.blkio;
     }
 
-    /* weight: 100-1000 */
-    public void setBlkioWeight(int weight) throws IOException {
-        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_WEIGHT), String.valueOf(weight));
+    public int getBlkioWeight() throws IOException {
+        return Integer.valueOf(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir,
+                BLKIO_WEIGHT)).get(0)).intValue();
     }
 
-    public int getBlkioWeight() throws IOException {
-        return Integer.valueOf(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, BLKIO_WEIGHT)).get(0)).intValue();
+    /* weight: 100-1000 */
+    public void setBlkioWeight(int weight) throws IOException {
+        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_WEIGHT), String
+                .valueOf(weight));
     }
 
     public void setBlkioWeightDevice(Device device, int weight) throws IOException {
-        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_WEIGHT_DEVICE), makeContext(device, weight));
+        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_WEIGHT_DEVICE),
+                makeContext(device, weight));
     }
 
     public Map<Device, Integer> getBlkioWeightDevice() throws IOException {
-        List<String> strings = CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, BLKIO_WEIGHT_DEVICE));
+        List<String> strings = CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir,
+                BLKIO_WEIGHT_DEVICE));
         Map<Device, Integer> result = new HashMap<Device, Integer>();
         for (String string : strings) {
             String[] strArgs = string.split(" ");
@@ -86,7 +85,8 @@ public class BlkioCore implements CgroupCore {
     }
 
     public void setReadBps(Device device, long bps) throws IOException {
-        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_THROTTLE_READ_BPS_DEVICE), makeContext(device, bps));
+        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_THROTTLE_READ_BPS_DEVICE),
+                makeContext(device, bps));
     }
 
     public Map<Device, Long> getReadBps() throws IOException {
@@ -94,35 +94,46 @@ public class BlkioCore implements CgroupCore {
     }
 
     public void setWriteBps(Device device, long bps) throws IOException {
-        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_THROTTLE_WRITE_BPS_DEVICE), makeContext(device, bps));
+        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_THROTTLE_WRITE_BPS_DEVICE),
+                makeContext(device, bps));
     }
 
     public Map<Device, Long> getWriteBps() throws IOException {
         return parseConfig(BLKIO_THROTTLE_WRITE_BPS_DEVICE);
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public void setReadIOps(Device device, long iops) throws IOException {
-        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_THROTTLE_READ_IOPS_DEVICE), makeContext(device, iops));
+        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_THROTTLE_READ_IOPS_DEVICE),
+                makeContext(device, iops));
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public Map<Device, Long> getReadIOps() throws IOException {
         return parseConfig(BLKIO_THROTTLE_READ_IOPS_DEVICE);
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public void setWriteIOps(Device device, long iops) throws IOException {
-        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_THROTTLE_WRITE_IOPS_DEVICE), makeContext(device, iops));
+        CgroupUtils.writeFileByLine(CgroupUtils.getDir(this.dir, BLKIO_THROTTLE_WRITE_IOPS_DEVICE),
+                makeContext(device, iops));
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public Map<Device, Long> getWriteIOps() throws IOException {
         return parseConfig(BLKIO_THROTTLE_WRITE_IOPS_DEVICE);
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public Map<Device, Map<RecordType, Long>> getThrottleIOServiced() throws IOException {
-        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, BLKIO_THROTTLE_IO_SERVICED)));
+        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir,
+                BLKIO_THROTTLE_IO_SERVICED)));
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public Map<Device, Map<RecordType, Long>> getThrottleIOServiceByte() throws IOException {
-        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, BLKIO_THROTTLE_IO_SERVICE_BYTES)));
+        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir,
+                BLKIO_THROTTLE_IO_SERVICE_BYTES)));
     }
 
     public Map<Device, Long> getBlkioTime() throws IOException {
@@ -133,28 +144,40 @@ public class BlkioCore implements CgroupCore {
         return parseConfig(BLKIO_SECTORS);
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public Map<Device, Map<RecordType, Long>> getIOServiced() throws IOException {
-        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, BLKIO_IO_SERVICED)));
+        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir,
+                BLKIO_IO_SERVICED)));
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public Map<Device, Map<RecordType, Long>> getIOServiceBytes() throws IOException {
-        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, BLKIO_IO_SERVICE_BYTES)));
+        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir,
+                BLKIO_IO_SERVICE_BYTES)));
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public Map<Device, Map<RecordType, Long>> getIOServiceTime() throws IOException {
-        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, BLKIO_IO_SERVICE_TIME)));
+        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir,
+                BLKIO_IO_SERVICE_TIME)));
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public Map<Device, Map<RecordType, Long>> getIOWaitTime() throws IOException {
-        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, BLKIO_IO_WAIT_TIME)));
+        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir,
+                BLKIO_IO_WAIT_TIME)));
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public Map<Device, Map<RecordType, Long>> getIOMerged() throws IOException {
-        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, BLKIO_IO_MERGED)));
+        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir,
+                BLKIO_IO_MERGED)));
     }
 
+    @SuppressWarnings("checkstyle:AbbreviationAsWordInName")
     public Map<Device, Map<RecordType, Long>> getIOQueued() throws IOException {
-        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir, BLKIO_IO_QUEUED)));
+        return this.analyseRecord(CgroupUtils.readFileByLine(CgroupUtils.getDir(this.dir,
+                BLKIO_IO_QUEUED)));
     }
 
     public void resetStats() throws IOException {

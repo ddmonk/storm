@@ -15,17 +15,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.storm.metrics.hdrhistogram;
 
-import org.apache.storm.metric.api.IMetric;
 import org.HdrHistogram.Histogram;
+import org.apache.storm.metric.api.IMetric;
 
 /**
  * A metric wrapping an HdrHistogram.
  */
 public class HistogramMetric implements IMetric {
-    private final Histogram _histo;
-
+    private final Histogram histo;
 
     public HistogramMetric(final int numberOfSignificantValueDigits) {
         this(null, numberOfSignificantValueDigits);
@@ -37,43 +37,55 @@ public class HistogramMetric implements IMetric {
 
     /**
      * (From the Constructor of Histogram)
-     * Construct a Histogram given the Lowest and Highest values to be tracked and a number of significant
-     * decimal digits. Providing a lowestDiscernibleValue is useful is situations where the units used
-     * for the histogram's values are much smaller that the minimal accuracy required. E.g. when tracking
-     * time values stated in nanosecond units, where the minimal accuracy required is a microsecond, the
+     * Construct a Histogram given the Lowest and Highest values to be tracked and a number of
+     * significant
+     * decimal digits. Providing a lowestDiscernibleValue is useful is situations where the units
+     * used
+     * for the histogram's values are much smaller that the minimal accuracy required. E.g. when
+     * tracking
+     * time values stated in nanosecond units, where the minimal accuracy required is a microsecond,
+     * the
      * proper value for lowestDiscernibleValue would be 1000.
      *
-     * @param lowestDiscernibleValue         The lowest value that can be discerned (distinguished from 0) by the
+     * @param lowestDiscernibleValue The lowest value that can be discerned (distinguished from 0)
+     *     by the
      *                                       histogram. Must be a positive integer that is {@literal >=} 1. May be
      *                                       internally rounded down to nearest power of 2
      *                                       (if null 1 is used).
-     * @param highestTrackableValue          The highest value to be tracked by the histogram. Must be a positive
+     * @param highestTrackableValue The highest value to be tracked by the histogram. Must be a
+     *     positive
      *                                       integer that is {@literal >=} (2 * lowestDiscernibleValue).
      *                                       (if null 2 * lowestDiscernibleValue is used and auto-resize is enabled)
-     * @param numberOfSignificantValueDigits Specifies the precision to use. This is the number of significant
+     * @param numberOfSignificantValueDigits Specifies the precision to use. This is the number of
+     *     significant
      *                                       decimal digits to which the histogram will maintain value resolution
      *                                       and separation. Must be a non-negative integer between 0 and 5.
      */
     public HistogramMetric(Long lowestDiscernibleValue, Long highestTrackableValue,
-                     final int numberOfSignificantValueDigits) {
+                           final int numberOfSignificantValueDigits) {
         boolean autoResize = false;
-        if (lowestDiscernibleValue == null) lowestDiscernibleValue = 1L;
+        if (lowestDiscernibleValue == null) {
+            lowestDiscernibleValue = 1L;
+        }
         if (highestTrackableValue == null) {
             highestTrackableValue = 2 * lowestDiscernibleValue;
             autoResize = true;
         }
-        _histo = new Histogram(lowestDiscernibleValue, highestTrackableValue, numberOfSignificantValueDigits);
-        if (autoResize) _histo.setAutoResize(true);
+        histo = new Histogram(lowestDiscernibleValue, highestTrackableValue,
+                numberOfSignificantValueDigits);
+        if (autoResize) {
+            histo.setAutoResize(true);
+        }
     }
 
     public void recordValue(long val) {
-        _histo.recordValue(val);
+        histo.recordValue(val);
     }
 
     @Override
     public Object getValueAndReset() {
-          Histogram copy = _histo.copy();
-          _histo.reset();
-          return copy;
+        Histogram copy = histo.copy();
+        histo.reset();
+        return copy;
     }
 }

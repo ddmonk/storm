@@ -15,12 +15,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.storm.jms.spout;
+
+import org.apache.storm.spout.ISpoutOutputCollector;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import org.apache.storm.spout.ISpoutOutputCollector;
 
 public class MockSpoutOutputCollector implements ISpoutOutputCollector {
     boolean emitted = false;
@@ -45,11 +46,11 @@ public class MockSpoutOutputCollector implements ISpoutOutputCollector {
     public void reportError(Throwable error) {
     }
 
-    public boolean emitted(){
+    public boolean emitted() {
         return this.emitted;
     }
 
-    public void reset(){
+    public void reset() {
         this.emitted = false;
     }
 

@@ -23,8 +23,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import org.apache.commons.lang.builder.ToStringBuilder;
-import org.apache.commons.lang.builder.ToStringStyle;
+import org.apache.commons.lang3.builder.ToStringBuilder;
+import org.apache.commons.lang3.builder.ToStringStyle;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.framework.api.PathAndBytesable;
@@ -59,7 +59,7 @@ public class KafkaTridentSpoutMigration {
         private final long firstOffset;
         private final long lastOffset;
 
-        public PartitionMetadata(long firstOffset, long lastOffset) {
+        PartitionMetadata(long firstOffset, long lastOffset) {
             this.firstOffset = firstOffset;
             this.lastOffset = lastOffset;
         }

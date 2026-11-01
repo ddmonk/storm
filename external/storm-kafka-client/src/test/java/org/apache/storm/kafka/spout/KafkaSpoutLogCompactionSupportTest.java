@@ -15,35 +15,14 @@
  */
 package org.apache.storm.kafka.spout;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import org.apache.kafka.clients.consumer.*;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration;
-import org.apache.storm.spout.SpoutOutputCollector;
-import org.apache.storm.task.TopologyContext;
-import org.apache.storm.utils.Time;
-import org.apache.storm.utils.Time.SimulatedTime;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
-import org.mockito.InOrder;
-import org.mockito.MockitoAnnotations;
-
 import static org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration.createKafkaSpoutConfigBuilder;
 import static org.hamcrest.CoreMatchers.is;
-
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.hasKey;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -52,8 +31,27 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import org.apache.kafka.clients.consumer.*;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration;
 import org.apache.storm.kafka.spout.subscription.ManualPartitioner;
 import org.apache.storm.kafka.spout.subscription.TopicFilter;
+import org.apache.storm.spout.SpoutOutputCollector;
+import org.apache.storm.task.TopologyContext;
+import org.apache.storm.utils.Time;
+import org.apache.storm.utils.Time.SimulatedTime;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.InOrder;
+import org.mockito.MockitoAnnotations;
 
 public class KafkaSpoutLogCompactionSupportTest {
 
@@ -68,7 +66,7 @@ public class KafkaSpoutLogCompactionSupportTest {
     @Captor
     private ArgumentCaptor<Map<TopicPartition, OffsetAndMetadata>> commitCapture;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         MockitoAnnotations.initMocks(this);
         spoutConfig = createKafkaSpoutConfigBuilder(mock(TopicFilter.class), mock(ManualPartitioner.class), -1)
@@ -89,7 +87,7 @@ public class KafkaSpoutLogCompactionSupportTest {
             recordsForPartition.addAll(SpoutWithMockedConsumerSetupHelper.createRecords(partition, 8, 2));
             records.put(partition, recordsForPartition);
 
-            when(consumerMock.poll(anyLong()))
+            when(consumerMock.poll(any(Duration.class)))
                     .thenReturn(new ConsumerRecords<>(records));
 
             for (int i = 0; i < recordsForPartition.size(); i++) {
@@ -105,13 +103,13 @@ public class KafkaSpoutLogCompactionSupportTest {
 
             // Advance time and then trigger first call to kafka consumer commit; the commit must progress to offset 9
             Time.advanceTime(KafkaSpout.TIMER_DELAY_MS + offsetCommitPeriodMs);
-            when(consumerMock.poll(anyLong()))
+            when(consumerMock.poll(any(Duration.class)))
                     .thenReturn(new ConsumerRecords<>(Collections.emptyMap()));
             spout.nextTuple();
 
             InOrder inOrder = inOrder(consumerMock);
             inOrder.verify(consumerMock).commitSync(commitCapture.capture());
-            inOrder.verify(consumerMock).poll(anyLong());
+            inOrder.verify(consumerMock).poll(any(Duration.class));
 
             //verify that Offset 10 was last committed offset, since this is the offset the spout should resume at
             Map<TopicPartition, OffsetAndMetadata> commits = commitCapture.getValue();
@@ -119,16 +117,16 @@ public class KafkaSpoutLogCompactionSupportTest {
             assertEquals(10, commits.get(partition).offset());
         }
     }
-    
+
+    /**
+     Verify that failed offsets will only retry if the corresponding message exists.
+     When log compaction is enabled in Kafka it is possible that a tuple can fail,
+     and then be impossible to retry because the message in Kafka has been deleted.
+     The spout needs to quietly ack such tuples to allow commits to progress past the deleted offset.
+     */
     @Test
     public void testWillSkipRetriableTuplesIfOffsetsAreCompactedAway() {
-        /*
-          Verify that failed offsets will only retry if the corresponding message exists. 
-          When log compaction is enabled in Kafka it is possible that a tuple can fail, 
-          and then be impossible to retry because the message in Kafka has been deleted.
-          The spout needs to quietly ack such tuples to allow commits to progress past the deleted offset.
-         */
-        try (SimulatedTime simulatedTime = new SimulatedTime()) {
+        try (SimulatedTime ignored = new SimulatedTime()) {
             TopicPartition partitionTwo = new TopicPartition(SingleTopicKafkaSpoutConfiguration.TOPIC, 2);
             KafkaSpout<String, String> spout = SpoutWithMockedConsumerSetupHelper.setupSpout(spoutConfig, conf, contextMock, collectorMock, consumerMock, partition, partitionTwo);
             
@@ -182,7 +180,7 @@ public class KafkaSpoutLogCompactionSupportTest {
     @Test
     public void testWillSkipRetriableTuplesIfOffsetsAreCompactedAwayWithoutAckingPendingTuples() {
         //Demonstrate that the spout doesn't ack pending tuples when skipping compacted tuples. The pending tuples should be allowed to finish normally.
-        try (SimulatedTime simulatedTime = new SimulatedTime()) {
+        try (SimulatedTime ignored = new SimulatedTime()) {
             KafkaSpout<String, String> spout = SpoutWithMockedConsumerSetupHelper.setupSpout(spoutConfig, conf, contextMock, collectorMock, consumerMock, partition);
             
             List<KafkaSpoutMessageId> firstPartitionMsgIds = SpoutWithMockedConsumerSetupHelper
@@ -218,6 +216,43 @@ public class KafkaSpoutLogCompactionSupportTest {
             committed = commitCapture.getValue();
             assertThat(committed.keySet(), is(Collections.singleton(partition)));
             assertThat("The first partition should have committed all offsets", committed.get(partition).offset(), is(3L));
+        }
+    }
+    
+    @Test
+    public void testCommitTupleAfterCompactionGap() {
+        //If there is an acked tupled after a compaction gap, the spout should commit it immediately
+        try (SimulatedTime simulatedTime = new SimulatedTime()) {
+            KafkaSpout<String, String> spout = SpoutWithMockedConsumerSetupHelper.setupSpout(spoutConfig, conf, contextMock, collectorMock, consumerMock, partition);
+            
+            List<KafkaSpoutMessageId> firstMessage = SpoutWithMockedConsumerSetupHelper
+                .pollAndEmit(spout, consumerMock, 1, collectorMock, partition, 0);
+            reset(collectorMock);
+            
+            List<KafkaSpoutMessageId> messageAfterGap = SpoutWithMockedConsumerSetupHelper.pollAndEmit(spout, consumerMock, 1, collectorMock, partition, 2);
+            reset(collectorMock);
+            
+            spout.ack(firstMessage.get(0));
+            
+            Time.advanceTime(KafkaSpout.TIMER_DELAY_MS + offsetCommitPeriodMs);
+            spout.nextTuple();
+            verify(consumerMock).commitSync(commitCapture.capture());
+            Map<TopicPartition, OffsetAndMetadata> committed = commitCapture.getValue();
+            assertThat(committed.keySet(), is(Collections.singleton(partition)));
+            assertThat("The consumer should have committed the offset before the gap",
+                committed.get(partition).offset(), is(1L));
+            reset(consumerMock);
+            
+            spout.ack(messageAfterGap.get(0));
+            
+            Time.advanceTime(KafkaSpout.TIMER_DELAY_MS + offsetCommitPeriodMs);
+            spout.nextTuple();
+            
+            verify(consumerMock).commitSync(commitCapture.capture());
+            committed = commitCapture.getValue();
+            assertThat(committed.keySet(), is(Collections.singleton(partition)));
+            assertThat("The consumer should have committed the offset after the gap, since offset 1 wasn't emitted and both 0 and 2 are acked",
+                committed.get(partition).offset(), is(3L));
         }
     }
 

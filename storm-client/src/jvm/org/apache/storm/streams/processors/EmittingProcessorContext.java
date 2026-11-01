@@ -1,24 +1,24 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
+
 package org.apache.storm.streams.processors;
 
-import com.google.common.base.Function;
-import com.google.common.collect.Collections2;
+import static org.apache.storm.streams.WindowNode.PUNCTUATION;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.storm.streams.Pair;
 import org.apache.storm.streams.ProcessorNode;
 import org.apache.storm.streams.RefCountedTuple;
@@ -30,19 +30,10 @@ import org.apache.storm.tuple.Values;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
-
-import static org.apache.storm.streams.WindowNode.PUNCTUATION;
-
 /**
- * A context that emits the results to downstream processors which are in
- * another bolt.
+ * A context that emits the results to downstream processors which are in another bolt.
  */
-public class EmittingProcessorContext implements ProcessorContext {
+public class EmittingProcessorContext<T> implements ProcessorContext<T> {
     private static final Logger LOG = LoggerFactory.getLogger(EmittingProcessorContext.class);
     private final ProcessorNode processorNode;
     private final String outputStreamId;
@@ -54,7 +45,8 @@ public class EmittingProcessorContext implements ProcessorContext {
     private long eventTimestamp;
     private String timestampField;
 
-    public EmittingProcessorContext(ProcessorNode processorNode, OutputCollector collector, String outputStreamId) {
+    public EmittingProcessorContext(ProcessorNode processorNode, OutputCollector collector,
+            String outputStreamId) {
         this.processorNode = processorNode;
         this.outputStreamId = outputStreamId;
         this.collector = collector;
@@ -64,7 +56,7 @@ public class EmittingProcessorContext implements ProcessorContext {
     }
 
     @Override
-    public <T> void forward(T input) {
+    public void forward(T input) {
         if (PUNCTUATION.equals(input)) {
             emit(punctuation, punctuationStreamId);
             maybeAck();
@@ -77,7 +69,7 @@ public class EmittingProcessorContext implements ProcessorContext {
     }
 
     @Override
-    public <T> void forward(T input, String stream) {
+    public void forward(T input, String stream) {
         if (stream.equals(outputStreamId)) {
             forward(input);
         }
@@ -107,9 +99,10 @@ public class EmittingProcessorContext implements ProcessorContext {
             } else {
                 anchors.set(0, anchor);
             }
-             /*
+            /*
              * track punctuation in non-batch mode so that the
-             * punctuation is acked after all the processors have emitted the punctuation downstream.
+             * punctuation is acked after all the processors have emitted the punctuation
+             * downstream.
              */
             if (StreamUtil.isPunctuation(anchor.tuple().getValue(0))) {
                 anchor.increment();
@@ -148,7 +141,8 @@ public class EmittingProcessorContext implements ProcessorContext {
             LOG.debug("Emit un-anchored, outputStreamId: {}, values: {}", outputStreamId, values);
             collector.emit(outputStreamId, values);
         } else {
-            LOG.debug("Emit, outputStreamId: {}, anchors: {}, values: {}", outputStreamId, anchors, values);
+            LOG.debug("Emit, outputStreamId: {}, anchors: {}, values: {}", outputStreamId, anchors,
+                    values);
             collector.emit(outputStreamId, tuples(anchors), values);
         }
     }

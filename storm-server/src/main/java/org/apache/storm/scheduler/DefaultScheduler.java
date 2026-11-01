@@ -15,15 +15,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.storm.scheduler;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-
+import org.apache.storm.metric.StormMetricsRegistry;
 import org.apache.storm.utils.Utils;
 
 public class DefaultScheduler implements IScheduler {
@@ -44,7 +46,7 @@ public class DefaultScheduler implements IScheduler {
             }
 
             for (WorkerSlot slot : slots) {
-                existingSlots.remove(slot);                
+                existingSlots.remove(slot);
             }
 
             return existingSlots.keySet();
@@ -70,11 +72,24 @@ public class DefaultScheduler implements IScheduler {
     }
 
     public static void defaultSchedule(Topologies topologies, Cluster cluster) {
+        // Single full-set round-robin redistribute for the whole round. The per-topology scheduleTopologiesEvenly call
+        // below passes redistributeOntoIdle=false so the max.free.per.topology cap is not applied a second time on a
+        // supervisor left idle by this pass (apache/storm#8778 follow-up).
+        EvenScheduler.redistributeOntoIdleSupervisors(topologies, cluster);
         for (TopologyDetails topology : cluster.needsSchedulingTopologies()) {
+            // needsSchedulingTopologies() returns the cluster's full topology set, but this run is scoped to the
+            // topologies passed in: DefaultScheduler.schedule passes the full set (so the guard is a no-op), while
+            // IsolationScheduler delegates only its leftover, non-isolated topologies here. redistributeOntoIdleSupervisors
+            // above acted only on that passed-in set too. Skip topologies outside it so the leftover path never schedules
+            // one the caller excluded -- e.g. a down isolated topology on a reserved host.
+            if (topologies.getById(topology.getId()) == null) {
+                continue;
+            }
             List<WorkerSlot> availableSlots = cluster.getAvailableSlots();
             Set<ExecutorDetails> allExecutors = topology.getExecutors();
 
-            Map<WorkerSlot, List<ExecutorDetails>> aliveAssigned = EvenScheduler.getAliveAssignedWorkerSlotExecutors(cluster, topology.getId());
+            Map<WorkerSlot, List<ExecutorDetails>> aliveAssigned =
+                EvenScheduler.getAliveAssignedWorkerSlotExecutors(cluster, topology.getId());
             Set<ExecutorDetails> aliveExecutors = new HashSet<ExecutorDetails>();
             for (List<ExecutorDetails> list : aliveAssigned.values()) {
                 aliveExecutors.addAll(list);
@@ -85,18 +100,18 @@ public class DefaultScheduler implements IScheduler {
 
             Set<WorkerSlot> badSlots = null;
             if (totalSlotsToUse > aliveAssigned.size() || !allExecutors.equals(aliveExecutors)) {
-                badSlots = badSlots(aliveAssigned, allExecutors.size(), totalSlotsToUse);                
+                badSlots = badSlots(aliveAssigned, allExecutors.size(), totalSlotsToUse);
             }
             if (badSlots != null) {
                 cluster.freeSlots(badSlots);
             }
 
-            EvenScheduler.scheduleTopologiesEvenly(new Topologies(topology), cluster);
+            EvenScheduler.scheduleTopologiesEvenly(new Topologies(topology), cluster, false);
         }
     }
 
     @Override
-    public void prepare(Map<String, Object> conf) {
+    public void prepare(Map<String, Object> conf, StormMetricsRegistry metricsRegistry) {
         //noop
     }
 
@@ -107,6 +122,6 @@ public class DefaultScheduler implements IScheduler {
 
     @Override
     public Map<String, Map<String, Double>> config() {
-        return new HashMap<>();
+        return Collections.emptyMap();
     }
 }

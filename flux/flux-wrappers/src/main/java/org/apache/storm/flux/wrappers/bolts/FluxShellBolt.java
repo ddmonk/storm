@@ -65,7 +65,7 @@ public class FluxShellBolt extends ShellBolt implements IRichBolt {
      * className: "org.apache.storm.flux.wrappers.bolts.FluxShellBolt"
      * constructorArgs:
      * # command line
-     * - ["python", "splitsentence.py"]
+     * - ["python3", "splitsentence.py"]
      * # output fields
      * - ["word"]
      * configMethods:
@@ -90,7 +90,7 @@ public class FluxShellBolt extends ShellBolt implements IRichBolt {
      * className: "org.apache.storm.flux.wrappers.bolts.FluxShellBolt"
      * constructorArgs:
      * # command line
-     * - ["python", "splitsentence.py"]
+     * - ["python3", "splitsentence.py"]
      * # output fields
      * - ["word"]
      * configMethods:
@@ -118,7 +118,7 @@ public class FluxShellBolt extends ShellBolt implements IRichBolt {
      * - className: org.apache.storm.flux.wrappers.bolts.FluxShellBolt
      *   id: my_bolt
      *   constructorArgs:
-     *   - [python, my_bolt.py]
+     *   - [python3, my_bolt.py]
      *   configMethods:
      *   - name: setDefaultStream
      *     args:
@@ -139,7 +139,7 @@ public class FluxShellBolt extends ShellBolt implements IRichBolt {
      * - className: org.apache.storm.flux.wrappers.bolts.FluxShellBolt
      *   id: my_bolt
      *   constructorArgs:
-     *   - [python, my_bolt.py]
+     *   - [python3, my_bolt.py]
      *   configMethods:
      *   - name: setNamedStream
      *     args:
@@ -157,9 +157,9 @@ public class FluxShellBolt extends ShellBolt implements IRichBolt {
     public void declareOutputFields(OutputFieldsDeclarer declarer) {
         Iterator it = this.outputFields.entrySet().iterator();
         while (it.hasNext()) {
-            Map.Entry entryTuple = (Map.Entry)it.next();
-            String key = (String)entryTuple.getKey();
-            String[] value = (String[])entryTuple.getValue();
+            Map.Entry entryTuple = (Map.Entry) it.next();
+            String key = (String) entryTuple.getKey();
+            String[] value = (String[]) entryTuple.getValue();
             if (key.equals("default")) {
                 declarer.declare(new Fields(value));
             } else {

@@ -64,7 +64,7 @@ At time of writing, you can't emit to multiple output streams from Trident -- se
 
 ### Why am I getting a NotSerializableException/IllegalStateException when my topology is being started up?
 
-Within the Storm lifecycle, the topology is instantiated and then serialized to byte format to be stored in ZooKeeper, prior to the topology being executed. Within this step, if a spout or bolt within the topology has an initialized unserializable property, serialization will fail. If there is a need for a field that is unserializable, initialize it within the bolt or spout's prepare method, which is run after the topology is delivered to the worker.
+Within the Storm lifecycle, the topology is instantiated and then serialized to byte format to be stored in ZooKeeper, prior to the topology being executed. Within this step, if a spout or bolt within the topology has an initialized unserializable property, serialization will fail. If there is a need for a field that is unserializable, initialize it within the bolt's `prepare` or spout's `open` method, which is run after the topology is delivered to the worker.
 
 ## Spouts
 
@@ -76,7 +76,7 @@ A trident-spout is actually run within a storm _bolt_. The storm-spout of a trid
 
 You should only store static data, and as little of it as possible, into the metadata record (note: maybe you _can_ store more interesting things; you shouldn't, though)
 
-### How often is the 'emitPartitionBatchNew' function called?
+### How often is the 'emitBatchNew' function called?
 
 Since the MBC is the actual spout, all the tuples in a batch are just members of its tupletree. That means storm's "max spout pending" config effectively defines the number of concurrent batches trident runs. The MBC emits a new batch if it has fewer than max-spending tuples pending and if at least one [trident batch interval]({{page.git-blob-base}}/conf/defaults.yaml#L115)'s worth of seconds has passed since the last batch.
 

@@ -65,10 +65,11 @@ The access given to all users being read, write and admin with a replication fac
 Users can submit their topology with the following command. The command includes the 
 topology map configuration. The configuration holds two keys “key1” and “key2” with the 
 key “key1” having a local file name mapping named “blob_file” and it is not compressed.
+Workers will restart when the key1 file is updated on the supervisors.
 
 ```
 storm jar /home/y/lib/storm-starter/current/storm-starter-jar-with-dependencies.jar 
-org.apache.storm.starter.clj.word_count test_topo -c topology.blobstore.map='{"key1":{"localname":"blob_file", "uncompress":false},"key2":{}}'
+org.apache.storm.starter.WordCountTopology test_topo -c topology.blobstore.map='{"key1":{"localname":"blob_file", "uncompress":false, "workerRestart":true},"key2":{}}'
 ```
 
 ### Blob Creation Process
@@ -98,7 +99,7 @@ end, the supervisor and localizer talks to HdfsBlobStore through “HdfsClientBl
 
 ## Additional Features and Documentation
 ```
-storm jar /home/y/lib/storm-starter/current/storm-starter-jar-with-dependencies.jar org.apache.storm.starter.clj.word_count test_topo 
+storm jar /home/y/lib/storm-starter/current/storm-starter-jar-with-dependencies.jar org.apache.storm.starter.WordCountTopology test_topo 
 -c topology.blobstore.map='{"key1":{"localname":"blob_file", "uncompress":false},"key2":{}}'
 ```
  
@@ -290,7 +291,10 @@ appropriate runtime values for this worker. The distributed cache target size in
 of the distributed cache contents. It is set to 10240 MB.
 
 supervisor.localizer.cleanup.interval.ms: The distributed cache cleanup interval. Controls how often it scans to attempt to 
-cleanup anything over the cache target size. By default it is set to 600000 milliseconds.
+cleanup anything over the cache target size. By default it is set to 300000 milliseconds.
+
+supervisor.localizer.update.blob.interval.secs: The distributed cache interval for checking for blobs to update. By
+default it is set to 30 seconds.
 
 nimbus.blobstore.class:  Sets the blobstore implementation nimbus uses. It is set to "org.apache.storm.blobstore.LocalFsBlobStore"
 
@@ -314,6 +318,19 @@ Once this time is elapsed nimbus will go ahead and perform topology activation t
 The default is 60 seconds, a value of -1 indicates to wait for ever.
 * nimbus.code.sync.freq.secs: Frequency at which the background thread on nimbus which syncs code for locally missing blobs. Default is 2 minutes.
 ```
+
+Additionally, if you want to access to secure hdfs blobstore, you also need to set the following configs.  
+```
+storm.hdfs.login.keytab
+storm.hdfs.login.principal
+```
+
+For example,
+```
+storm.hdfs.login.keytab: /etc/keytab
+storm.hdfs.login.principal: primary/instance@REALM
+```
+
 
 ## Using the Distributed Cache API, Command Line Interface (CLI)
 
@@ -397,7 +414,7 @@ file-name-like format and extension, so it can be uncompressed correctly.
 ###### Example:  
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-storm jar /home/y/lib/storm-starter/current/storm-starter-jar-with-dependencies.jar org.apache.storm.starter.clj.word_count test_topo -c topology.blobstore.map='{"key1":{"localname":"blob_file", "uncompress":false},"key2":{}}'
+storm jar /home/y/lib/storm-starter/current/storm-starter-jar-with-dependencies.jar org.apache.storm.starter.WordCountTopology test_topo -c topology.blobstore.map='{"key1":{"localname":"blob_file", "uncompress":false},"key2":{}}'
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Note: Please take care of the quotes.
@@ -416,7 +433,7 @@ both the optional parameters are omitted, this file will get the local name =
 
 It is possible for the cached files to be updated while topologies are running.
 The update happens in an eventual consistency model, where the supervisors poll
-Nimbus every 30 seconds, and update their local copies. In the current version,
+Nimbus every supervisor.localizer.update.blob.interval.secs seconds, and update their local copies. In the current version,
 it is the user's responsibility to check whether a new file is available.
 
 To update a cached file, use the following command. Contents come from a FILE or

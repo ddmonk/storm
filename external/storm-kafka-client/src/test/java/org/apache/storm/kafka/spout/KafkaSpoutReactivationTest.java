@@ -17,7 +17,8 @@
 package org.apache.storm.kafka.spout;
 
 import static org.apache.storm.kafka.spout.KafkaSpout.TIMER_DELAY_MS;
-import static org.apache.storm.kafka.spout.KafkaSpoutConfig.FirstPollOffsetStrategy.UNCOMMITTED_EARLIEST;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -28,33 +29,36 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.codahale.metrics.Gauge;
+import com.codahale.metrics.Metric;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.storm.kafka.KafkaUnitRule;
+import org.apache.storm.kafka.KafkaUnitExtension;
 import org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration;
-import org.apache.storm.kafka.spout.internal.KafkaConsumerFactory;
-import org.apache.storm.kafka.spout.internal.KafkaConsumerFactoryDefault;
+import org.apache.storm.kafka.spout.internal.ClientFactory;
+import org.apache.storm.kafka.spout.internal.ClientFactoryDefault;
 import org.apache.storm.kafka.spout.subscription.TopicAssigner;
 import org.apache.storm.spout.SpoutOutputCollector;
 import org.apache.storm.task.TopologyContext;
 import org.apache.storm.utils.Time;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-@RunWith(MockitoJUnitRunner.class)
+@ExtendWith(MockitoExtension.class)
 public class KafkaSpoutReactivationTest {
 
-    @Rule
-    public KafkaUnitRule kafkaUnitRule = new KafkaUnitRule();
+    @RegisterExtension
+    public KafkaUnitExtension kafkaUnitExtension = new KafkaUnitExtension();
 
     @Captor
     private ArgumentCaptor<Map<TopicPartition, OffsetAndMetadata>> commitCapture;
@@ -63,33 +67,29 @@ public class KafkaSpoutReactivationTest {
     private final Map<String, Object> conf = new HashMap<>();
     private final SpoutOutputCollector collector = mock(SpoutOutputCollector.class);
     private final long commitOffsetPeriodMs = 2_000;
-    private KafkaConsumer<String, String> consumerSpy;
-    private KafkaConsumer<String, String> postReactivationConsumerSpy;
+    private Consumer<String, String> consumerSpy;
+    private Admin adminSpy;
     private KafkaSpout<String, String> spout;
     private final int maxPollRecords = 10;
 
-    @Before
-    public void setUp() {
+    public void prepareSpout(int messageCount, FirstPollOffsetStrategy firstPollOffsetStrategy) throws Exception {
         KafkaSpoutConfig<String, String> spoutConfig =
-            SingleTopicKafkaSpoutConfiguration.setCommonSpoutConfig(
-                KafkaSpoutConfig.builder("127.0.0.1:" + kafkaUnitRule.getKafkaUnit().getKafkaPort(),
+            SingleTopicKafkaSpoutConfiguration.setCommonSpoutConfig(KafkaSpoutConfig.builder("127.0.0.1:" + kafkaUnitExtension.getKafkaUnit().getKafkaPort(),
                     SingleTopicKafkaSpoutConfiguration.TOPIC))
-                .setFirstPollOffsetStrategy(UNCOMMITTED_EARLIEST)
+                .setFirstPollOffsetStrategy(firstPollOffsetStrategy)
                 .setOffsetCommitPeriodMs(commitOffsetPeriodMs)
                 .setProp(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, maxPollRecords)
                 .build();
-        KafkaConsumerFactory<String, String> consumerFactory = new KafkaConsumerFactoryDefault<>();
-        this.consumerSpy = spy(consumerFactory.createConsumer(spoutConfig));
-        this.postReactivationConsumerSpy = spy(consumerFactory.createConsumer(spoutConfig));
-        KafkaConsumerFactory<String, String> consumerFactoryMock = mock(KafkaConsumerFactory.class);
-        when(consumerFactoryMock.createConsumer(any()))
-            .thenReturn(consumerSpy)
-            .thenReturn(postReactivationConsumerSpy);
-        this.spout = new KafkaSpout<>(spoutConfig, consumerFactoryMock, new TopicAssigner());
-    }
-
-    private void prepareSpout(int messageCount) throws Exception {
-        SingleTopicKafkaUnitSetupHelper.populateTopicData(kafkaUnitRule.getKafkaUnit(), SingleTopicKafkaSpoutConfiguration.TOPIC, messageCount);
+        ClientFactory<String, String> clientFactory = new ClientFactoryDefault<>();
+        this.consumerSpy = spy(clientFactory.createConsumer(spoutConfig.getKafkaProps()));
+        this.adminSpy = spy(clientFactory.createAdmin(spoutConfig.getKafkaProps()));
+        ClientFactory<String, String> clientFactoryMock = mock(ClientFactory.class);
+        when(clientFactoryMock.createConsumer(any()))
+            .thenReturn(consumerSpy);
+        when(clientFactoryMock.createAdmin(any()))
+                .thenReturn(adminSpy);
+        this.spout = new KafkaSpout<>(spoutConfig, clientFactoryMock, new TopicAssigner());
+        SingleTopicKafkaUnitSetupHelper.populateTopicData(kafkaUnitExtension.getKafkaUnit(), SingleTopicKafkaSpoutConfiguration.TOPIC, messageCount);
         SingleTopicKafkaUnitSetupHelper.initializeSpout(spout, conf, topologyContext, collector);
     }
 
@@ -101,11 +101,10 @@ public class KafkaSpoutReactivationTest {
         return messageId.getValue();
     }
 
-    @Test
-    public void testSpoutMustHandleReactivationGracefully() throws Exception {
-        try (Time.SimulatedTime time = new Time.SimulatedTime()) {
+    private void doReactivationTest(FirstPollOffsetStrategy firstPollOffsetStrategy) throws Exception {
+        try (Time.SimulatedTime ignored = new Time.SimulatedTime()) {
             int messageCount = maxPollRecords * 2;
-            prepareSpout(messageCount);
+            prepareSpout(messageCount, firstPollOffsetStrategy);
 
             //Emit and ack some tuples, ensure that some polled tuples remain cached in the spout by emitting less than maxPollRecords
             int beforeReactivationEmits = maxPollRecords - 3;
@@ -119,6 +118,7 @@ public class KafkaSpoutReactivationTest {
             //Cycle spout activation
             spout.deactivate();
             SingleTopicKafkaUnitSetupHelper.verifyAllMessagesCommitted(consumerSpy, commitCapture, beforeReactivationEmits - 1);
+            clearInvocations(consumerSpy);
             //Tuples may be acked/failed after the spout deactivates, so we have to be able to handle this too
             spout.ack(ackAfterDeactivateMessageId);
             spout.activate();
@@ -134,7 +134,7 @@ public class KafkaSpoutReactivationTest {
             spout.nextTuple();
 
             //Verify that no more tuples are emitted and all tuples are committed
-            SingleTopicKafkaUnitSetupHelper.verifyAllMessagesCommitted(postReactivationConsumerSpy, commitCapture, messageCount);
+            SingleTopicKafkaUnitSetupHelper.verifyAllMessagesCommitted(consumerSpy, commitCapture, messageCount);
 
             clearInvocations(collector);
             spout.nextTuple();
@@ -143,4 +143,35 @@ public class KafkaSpoutReactivationTest {
 
     }
 
+    @Test
+    public void testSpoutShouldResumeWhereItLeftOffWithUncommittedEarliestStrategy() throws Exception {
+        //With uncommitted earliest the spout should pick up where it left off when reactivating.
+        doReactivationTest(FirstPollOffsetStrategy.UNCOMMITTED_EARLIEST);
+    }
+
+    @Test
+    public void testSpoutShouldResumeWhereItLeftOffWithEarliestStrategy() throws Exception {
+        //With earliest, the spout should also resume where it left off, rather than restart at the earliest offset.
+        doReactivationTest(FirstPollOffsetStrategy.EARLIEST);
+    }
+
+    @Test
+    public void testSpoutMustHandleGettingMetricsWhileDeactivated() throws Exception {
+        //Storm will try to get metrics from the spout even while deactivated, the spout must be able to handle this
+        prepareSpout(10, FirstPollOffsetStrategy.UNCOMMITTED_EARLIEST);
+
+        for (int i = 0; i < 5; i++) {
+            KafkaSpoutMessageId msgId = emitOne();
+            spout.ack(msgId);
+        }
+        spout.deactivate();
+
+        Map<String, Metric> partitionsOffsetMetric = spout.getKafkaOffsetMetricManager().getTopicPartitionMetricsMap().get(new TopicPartition(SingleTopicKafkaSpoutConfiguration.TOPIC ,0)).getMetrics();
+        Long partitionLag = (Long) ((Gauge) partitionsOffsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC + "/partition_0/spoutLag")).getValue();
+        assertThat(partitionLag, is(5L));
+
+        Map<String, Metric> topicOffsetMetric = spout.getKafkaOffsetMetricManager().getTopicMetricsMap().get(SingleTopicKafkaSpoutConfiguration.TOPIC).getMetrics();
+        Long totalSpoutLag = (Long) ((Gauge) topicOffsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC + "/totalSpoutLag")).getValue();
+        assertThat(totalSpoutLag, is(5L));
+    }
 }

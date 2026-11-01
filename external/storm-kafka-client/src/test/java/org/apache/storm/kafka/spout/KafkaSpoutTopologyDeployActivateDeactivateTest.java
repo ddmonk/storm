@@ -18,13 +18,15 @@
 
 package org.apache.storm.kafka.spout;
 
-import org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration;
-import org.junit.Test;
-
-import java.util.regex.Pattern;
-
 import static org.mockito.Mockito.when;
 
+import java.util.regex.Pattern;
+import org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
 public class KafkaSpoutTopologyDeployActivateDeactivateTest extends KafkaSpoutAbstractTest {
 
     public KafkaSpoutTopologyDeployActivateDeactivateTest() {
@@ -34,10 +36,10 @@ public class KafkaSpoutTopologyDeployActivateDeactivateTest extends KafkaSpoutAb
     @Override
     KafkaSpoutConfig<String, String> createSpoutConfig() {
         return SingleTopicKafkaSpoutConfiguration.setCommonSpoutConfig(
-            KafkaSpoutConfig.builder("127.0.0.1:" + kafkaUnitRule.getKafkaUnit().getKafkaPort(),
+            KafkaSpoutConfig.builder("127.0.0.1:" + kafkaUnitExtension.getKafkaUnit().getKafkaPort(),
                 Pattern.compile(SingleTopicKafkaSpoutConfiguration.TOPIC)))
             .setOffsetCommitPeriodMs(commitOffsetPeriodMs)
-            .setFirstPollOffsetStrategy(KafkaSpoutConfig.FirstPollOffsetStrategy.EARLIEST)
+            .setFirstPollOffsetStrategy(FirstPollOffsetStrategy.EARLIEST)
             .build();
     }
 
@@ -52,8 +54,6 @@ public class KafkaSpoutTopologyDeployActivateDeactivateTest extends KafkaSpoutAb
         spout.deactivate();
 
         verifyAllMessagesCommitted(1);
-
-        consumerSpy = createConsumerSpy();
 
         spout.activate();
 

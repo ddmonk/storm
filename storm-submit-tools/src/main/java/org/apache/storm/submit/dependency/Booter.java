@@ -18,6 +18,8 @@
 
 package org.apache.storm.submit.dependency;
 
+import java.io.File;
+
 import org.apache.maven.repository.internal.MavenRepositorySystemUtils;
 import org.eclipse.aether.DefaultRepositorySystemSession;
 import org.eclipse.aether.RepositorySystem;
@@ -25,12 +27,10 @@ import org.eclipse.aether.RepositorySystemSession;
 import org.eclipse.aether.repository.LocalRepository;
 import org.eclipse.aether.repository.RemoteRepository;
 
-import java.io.File;
+public final class Booter {
+    private Booter() {
+    }
 
-/**
- * Manage mvn repository.
- */
-public class Booter {
     public static RepositorySystem newRepositorySystem() {
         return RepositorySystemFactory.newRepositorySystem();
     }
@@ -38,20 +38,12 @@ public class Booter {
     public static RepositorySystemSession newRepositorySystemSession(
         RepositorySystem system, String localRepoPath) {
         DefaultRepositorySystemSession session = MavenRepositorySystemUtils.newSession();
-
-        LocalRepository localRepo =
-                new LocalRepository(new File(localRepoPath).getAbsolutePath());
+        LocalRepository localRepo = new LocalRepository(new File(localRepoPath).getAbsolutePath());
         session.setLocalRepositoryManager(system.newLocalRepositoryManager(session, localRepo));
-
         return session;
     }
 
     public static RemoteRepository newCentralRepository() {
-        return new RemoteRepository.Builder("central", "default", "http://repo1.maven.org/maven2/").build();
-    }
-
-    public static RemoteRepository newLocalRepository() {
-        return new RemoteRepository.Builder("local",
-                "default", "file://" + System.getProperty("user.home") + "/.m2/repository").build();
+        return new RemoteRepository.Builder("central", "default", "https://repo1.maven.org/maven2/").build();
     }
 }

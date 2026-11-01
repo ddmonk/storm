@@ -1,24 +1,18 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
+
 package org.apache.storm.messaging.netty;
 
 import java.io.IOException;
-
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.CallbackHandler;
 import javax.security.auth.callback.NameCallback;
@@ -29,7 +23,6 @@ import javax.security.sasl.RealmChoiceCallback;
 import javax.security.sasl.Sasl;
 import javax.security.sasl.SaslClient;
 import javax.security.sasl.SaslException;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,8 +35,8 @@ public class SaslNettyClient {
             .getLogger(SaslNettyClient.class);
 
     /**
-     * Used to respond to server's counterpart, SaslServer with SASL tokens
-     * represented as byte arrays.
+     * Used to respond to server's counterpart, SaslServer with SASL tokens represented as byte
+     * arrays.
      */
     private SaslClient saslClient;
 
@@ -53,10 +46,10 @@ public class SaslNettyClient {
     public SaslNettyClient(String topologyName, byte[] token) {
         try {
             LOG.debug("SaslNettyClient: Creating SASL {} client to authenticate to server ",
-                      SaslUtils.AUTH_DIGEST_MD5);
+                    SaslUtils.AUTH_DIGEST_MD5);
 
             saslClient = Sasl.createSaslClient(
-                    new String[] { SaslUtils.AUTH_DIGEST_MD5 }, null, null,
+                    new String[] {SaslUtils.AUTH_DIGEST_MD5}, null, null,
                     SaslUtils.DEFAULT_REALM, SaslUtils.getSaslProps(),
                     new SaslClientCallbackHandler(topologyName, token));
 
@@ -73,9 +66,8 @@ public class SaslNettyClient {
 
     /**
      * Respond to server's SASL token.
-     * 
-     * @param saslTokenMessage
-     *            contains server's SASL token
+     *
+     * @param saslTokenMessage contains server's SASL token
      * @return client's response SASL token
      */
     public byte[] saslResponse(SaslMessageToken saslTokenMessage) {
@@ -90,19 +82,23 @@ public class SaslNettyClient {
     }
 
     /**
-     * Implementation of javax.security.auth.callback.CallbackHandler that works
-     * with Storm topology tokens.
+     * Implementation of javax.security.auth.callback.CallbackHandler that works with Storm topology
+     * tokens.
      */
     private static class SaslClientCallbackHandler implements CallbackHandler {
-        /** Generated username contained in TopologyToken */
+        /**
+         * Generated username contained in TopologyToken.
+         */
         private final String userName;
-        /** Generated password contained in TopologyToken */
+        /**
+         * Generated password contained in TopologyToken.
+         */
         private final char[] userPassword;
 
         /**
          * Set private members using topology token.
          */
-        public SaslClientCallbackHandler(String topologyToken, byte[] token) {
+        SaslClientCallbackHandler(String topologyToken, byte[] token) {
             this.userName = SaslUtils
                     .encodeIdentifier(topologyToken.getBytes());
             this.userPassword = SaslUtils.encodePassword(token);
@@ -110,12 +106,11 @@ public class SaslNettyClient {
 
         /**
          * Implementation used to respond to SASL tokens from server.
-         * 
-         * @param callbacks
-         *            objects that indicate what credential information the
-         *            server's SaslServer requires from the client.
-         * @throws UnsupportedCallbackException
+         *
+         * @param callbacks objects that indicate what credential information the server's
+         *     SaslServer requires from the client.
          */
+        @Override
         public void handle(Callback[] callbacks)
                 throws UnsupportedCallbackException {
             NameCallback nc = null;
@@ -137,7 +132,7 @@ public class SaslNettyClient {
             }
             if (nc != null) {
                 LOG.debug("handle: SASL client callback: setting username: {}",
-                          userName);
+                        userName);
                 nc.setName(userName);
             }
             if (pc != null) {

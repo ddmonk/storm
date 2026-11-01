@@ -18,11 +18,12 @@
 
 package org.apache.storm.daemon.common;
 
+import jakarta.ws.rs.core.Response;
+
 import java.util.Collections;
 import java.util.Map;
-import javax.ws.rs.core.Response;
 
-import org.apache.storm.ui.UIHelpers;
+import org.apache.storm.daemon.ui.UIHelpers;
 
 /**
  * Response builder for JSON. It utilizes {@link UIHelpers} to construct JSON body and headers.

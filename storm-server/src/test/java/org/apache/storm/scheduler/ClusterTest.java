@@ -1,28 +1,23 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
+
 package org.apache.storm.scheduler;
 
 import java.util.HashMap;
 import java.util.Map;
-
 import org.apache.storm.Config;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Unit tests for {@link Cluster}.
@@ -39,8 +34,7 @@ public class ClusterTest {
     }
 
     private Map<String, Object> getEmptyConfig() {
-        Map<String, Object> topConf = new HashMap<>();
-        return topConf;
+        return new HashMap<>();
     }
 
     private Map<String, Object> getPopulatedConfig() {
@@ -62,13 +56,13 @@ public class ClusterTest {
      */
     private void singleValueTest(String key, String value, double expectedValue) {
         Map<String, Object> topConf = getConfig(key, value);
-        Assert.assertEquals(expectedValue, Cluster.getAssignedMemoryForSlot(topConf), 0);
+        assertEquals(expectedValue, Cluster.getAssignedMemoryForSlot(topConf), 0);
     }
 
     @Test
     public void getAssignedMemoryForSlot_allNull() {
         Map<String, Object> topConf = getEmptyConfig();
-        Assert.assertEquals(TOPOLOGY_WORKER_DEFAULT_MEMORY_ALLOCATION, Cluster.getAssignedMemoryForSlot(topConf), 0);
+        assertEquals(TOPOLOGY_WORKER_DEFAULT_MEMORY_ALLOCATION, Cluster.getAssignedMemoryForSlot(topConf), 0);
     }
 
     @Test
@@ -94,18 +88,18 @@ public class ClusterTest {
     @Test
     public void getAssignedMemoryForSlot_workerHeapMemoryMb() {
         Map<String, Object> topConf = getConfig(Config.WORKER_HEAP_MEMORY_MB, 1024);
-        Assert.assertEquals(1024.0, Cluster.getAssignedMemoryForSlot(topConf), 0);
+        assertEquals(1024.0, Cluster.getAssignedMemoryForSlot(topConf), 0);
     }
 
     @Test
     public void getAssignedMemoryForSlot_topologyWorkerLwChildopts() {
-        singleValueTest(Config.TOPOLOGY_WORKER_LOGWRITER_CHILDOPTS, "-Xmx64m", 
-                TOPOLOGY_WORKER_DEFAULT_MEMORY_ALLOCATION + 64.0);
+        singleValueTest(Config.TOPOLOGY_WORKER_LOGWRITER_CHILDOPTS, "-Xmx64m",
+                        TOPOLOGY_WORKER_DEFAULT_MEMORY_ALLOCATION + 64.0);
     }
 
     @Test
     public void getAssignedMemoryForSlot_all() {
         Map<String, Object> topConf = getPopulatedConfig();
-        Assert.assertEquals(128.0 + 64.0, Cluster.getAssignedMemoryForSlot(topConf), 0);
+        assertEquals(128.0 + 64.0, Cluster.getAssignedMemoryForSlot(topConf), 0);
     }
 }

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -9,141 +9,199 @@
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 
 package org.apache.storm.utils;
 
-import org.apache.storm.Config;
-import org.apache.storm.generated.ComponentCommon;
-import org.apache.storm.generated.ComponentObject;
-import org.apache.storm.generated.SpoutSpec;
-import org.apache.storm.generated.StormTopology;
-import org.json.simple.JSONValue;
-import org.json.simple.parser.ParseException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Strings;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import net.minidev.json.JSONValue;
+import net.minidev.json.parser.ParseException;
+import org.apache.storm.generated.ComponentCommon;
+import org.apache.storm.generated.SpoutSpec;
+import org.apache.storm.generated.StormTopology;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class TopologySpoutLag {
     // FIXME: This class can be moved to webapp once UI porting is done.
 
     private static final String SPOUT_ID = "spoutId";
-    private static final String SPOUT_TYPE= "spoutType";
+    private static final String SPOUT_TYPE = "spoutType";
     private static final String SPOUT_LAG_RESULT = "spoutLagResult";
     private static final String ERROR_INFO = "errorInfo";
-    private final static Logger logger = LoggerFactory.getLogger(TopologySpoutLag.class);
+    private static final String CONFIG_KEY_PREFIX = "config.";
+    private static final String TOPICS_CONFIG = CONFIG_KEY_PREFIX + "topics";
+    private static final String GROUPID_CONFIG = CONFIG_KEY_PREFIX + "groupid";
+    private static final String BOOTSTRAP_CONFIG = CONFIG_KEY_PREFIX + "bootstrap.servers";
+    private static final String SECURITY_PROTOCOL_CONFIG = CONFIG_KEY_PREFIX + "security.protocol";
+    private static final Set<String> ALL_CONFIGS = new HashSet<>(Arrays.asList(TOPICS_CONFIG, GROUPID_CONFIG,
+            BOOTSTRAP_CONFIG, SECURITY_PROTOCOL_CONFIG));
+    // The spout json_conf comes from the submitted topology, while storm-kafka-monitor runs on the UI host.
+    // Only the connection settings the monitor actually needs to reach the brokers are forwarded to it; anything
+    // else (deserializers, interceptor.classes, metric.reporters, sasl.jaas.config, callback handler classes, ...)
+    // is dropped, so the monitor keeps using its own defaults rather than classes named by the topology.
+    private static final Set<String> ALLOWED_EXTRA_PROPERTIES = new HashSet<>(Arrays.asList(
+            "client.id",
+            "request.timeout.ms",
+            "session.timeout.ms",
+            "sasl.mechanism",
+            "sasl.kerberos.service.name",
+            "ssl.protocol",
+            "ssl.provider",
+            "ssl.enabled.protocols",
+            "ssl.cipher.suites",
+            "ssl.endpoint.identification.algorithm",
+            "ssl.truststore.type",
+            "ssl.truststore.location",
+            "ssl.truststore.password",
+            "ssl.keystore.type",
+            "ssl.keystore.location",
+            "ssl.keystore.password",
+            "ssl.key.password"));
+    private static final Logger LOGGER = LoggerFactory.getLogger(TopologySpoutLag.class);
 
-    public static Map<String, Map<String, Object>> lag (StormTopology stormTopology, Map<String, Object> topologyConf) {
+    // The storm-kafka-monitor jars ship only in the full binary distribution; users of the lite
+    // distribution install them on demand (bin/storm-kafka-monitor-fetch). Log the "not installed"
+    // hint at most once to avoid spamming the UI logs, which poll the lag endpoint periodically.
+    private static volatile boolean warnedMonitorMissing = false;
+
+    public static Map<String, Map<String, Object>> lag(StormTopology stormTopology, Map<String, Object> topologyConf) {
         Map<String, Map<String, Object>> result = new HashMap<>();
         Map<String, SpoutSpec> spouts = stormTopology.get_spouts();
-        String className = null;
-        for (Map.Entry<String, SpoutSpec> spout: spouts.entrySet()) {
+        for (Map.Entry<String, SpoutSpec> spout : spouts.entrySet()) {
             try {
                 SpoutSpec spoutSpec = spout.getValue();
-                ComponentObject componentObject = spoutSpec.get_spout_object();
-                // FIXME: yes it's a trick so we might be better to find alternative way...
-                className = getClassNameFromComponentObject(componentObject);
-                logger.debug("spout classname: {}", className);
-                if (className.endsWith("storm.kafka.spout.KafkaSpout")) {
-                    result.put(spout.getKey(), getLagResultForNewKafkaSpout(spout.getKey(), spoutSpec, topologyConf));
-                } else if (className.endsWith("storm.kafka.KafkaSpout")) {
-                    result.put(spout.getKey(), getLagResultForOldKafkaSpout(spout.getKey(), spoutSpec, topologyConf));
-                }
+                addLagResultForKafkaSpout(result, spout.getKey(), spoutSpec);
             } catch (Exception e) {
-                logger.warn("Exception thrown while getting lag for spout id: " + spout.getKey() + " and spout class: " + className);
-                logger.warn("Exception message:" + e.getMessage(), e);
+                LOGGER.warn("Exception thrown while getting lag for spout id: " + spout.getKey());
+                LOGGER.warn("Exception message:" + e.getMessage(), e);
             }
         }
         return result;
     }
 
-    private static String getClassNameFromComponentObject(ComponentObject componentObject) {
-        try {
-            Object object = Utils.getSetComponentObject(componentObject);
-            return object.getClass().getCanonicalName();
-        } catch (RuntimeException e) {
-
-            if (e.getCause() instanceof ClassNotFoundException) {
-                return e.getCause().getMessage().trim();
-            }
-
-            throw e;
+    /**
+     * Checks whether the storm-kafka-monitor jars (invoked by bin/storm-kafka-monitor) are present.
+     * They ship only in the full binary distribution and are fetched on demand on the lite one, so
+     * the UI must degrade gracefully when they are absent rather than failing the lag shell-out.
+     *
+     * @return true if the monitor appears installed, or if STORM_BASE_DIR is unknown (in which case
+     *     the legacy behavior of attempting the shell-out is preserved).
+     */
+    private static boolean isKafkaMonitorInstalled() {
+        String stormHomeDir = System.getenv("STORM_BASE_DIR");
+        if (stormHomeDir == null) {
+            return true;
         }
+        File libDir = new File(new File(stormHomeDir, "lib-tools"), "storm-kafka-monitor");
+        File[] jars = libDir.listFiles((dir, name) -> name.endsWith(".jar"));
+        return jars != null && jars.length > 0;
     }
 
-    private static List<String> getCommandLineOptionsForNewKafkaSpout (Map<String, Object> jsonConf) {
-        logger.debug("json configuration: {}", jsonConf);
+    private static List<String> getCommandLineOptionsForNewKafkaSpout(Map<String, Object> jsonConf) {
+        LOGGER.debug("json configuration keys: {}", jsonConf.keySet());
 
         List<String> commands = new ArrayList<>();
-        String configKeyPrefix = "config.";
         commands.add("-t");
-        commands.add((String)jsonConf.get(configKeyPrefix + "topics"));
+        commands.add((String) jsonConf.get(TOPICS_CONFIG));
         commands.add("-g");
-        commands.add((String)jsonConf.get(configKeyPrefix + "groupid"));
+        commands.add((String) jsonConf.get(GROUPID_CONFIG));
         commands.add("-b");
-        commands.add((String)jsonConf.get(configKeyPrefix + "bootstrap.servers"));
-        String securityProtocol = (String)jsonConf.get(configKeyPrefix + "security.protocol");
-        if (securityProtocol != null && !securityProtocol.isEmpty()) {
+        commands.add((String) jsonConf.get(BOOTSTRAP_CONFIG));
+        String securityProtocol = (String) jsonConf.get(SECURITY_PROTOCOL_CONFIG);
+        if (!Strings.isNullOrEmpty(securityProtocol)) {
             commands.add("-s");
             commands.add(securityProtocol);
         }
         return commands;
     }
 
-    private static List<String> getCommandLineOptionsForOldKafkaSpout (Map<String, Object> jsonConf, Map<String, Object> topologyConf) {
-        logger.debug("json configuration: {}", jsonConf);
-
-        List<String> commands = new ArrayList<>();
-        String configKeyPrefix = "config.";
-        commands.add("-o");
-        commands.add("-t");
-        commands.add((String)jsonConf.get(configKeyPrefix + "topics"));
-        commands.add("-n");
-        commands.add((String)jsonConf.get(configKeyPrefix + "zkRoot"));
-        String zkServers = (String)jsonConf.get(configKeyPrefix + "zkServers");
-        if (zkServers == null || zkServers.isEmpty()) {
-            StringBuilder zkServersBuilder = new StringBuilder();
-            Integer zkPort = ((Number) topologyConf.get(Config.STORM_ZOOKEEPER_PORT)).intValue();
-            for (String zkServer: (List<String>) topologyConf.get(Config.STORM_ZOOKEEPER_SERVERS)) {
-                zkServersBuilder.append(zkServer + ":" + zkPort + ",");
-            }
-            zkServers = zkServersBuilder.toString();
-        }
-        commands.add("-z");
-        commands.add(zkServers);
-        if (jsonConf.get(configKeyPrefix + "leaders") != null) {
-            commands.add("-p");
-            commands.add((String)jsonConf.get(configKeyPrefix + "partitions"));
-            commands.add("-l");
-            commands.add((String)jsonConf.get(configKeyPrefix + "leaders"));
-        } else {
-            commands.add("-r");
-            commands.add((String)jsonConf.get(configKeyPrefix + "zkNodeBrokers"));
-            Boolean isWildCard = (Boolean) topologyConf.get("kafka.topic.wildcard.match");
-            if (isWildCard != null && isWildCard.booleanValue()) {
-                commands.add("-w");
+    @VisibleForTesting
+    static File createExtraPropertiesFile(Map<String, Object> jsonConf) {
+        File file = null;
+        Map<String, String> extraProperties = new HashMap<>();
+        List<String> droppedProperties = new ArrayList<>();
+        for (Map.Entry<String, Object> conf : jsonConf.entrySet()) {
+            if (conf.getKey().startsWith(CONFIG_KEY_PREFIX) && !ALL_CONFIGS.contains(conf.getKey())) {
+                String consumerKey = conf.getKey().substring(CONFIG_KEY_PREFIX.length());
+                if (ALLOWED_EXTRA_PROPERTIES.contains(consumerKey)) {
+                    extraProperties.put(consumerKey, conf.getValue().toString());
+                } else {
+                    droppedProperties.add(consumerKey);
+                }
             }
         }
-        return commands;
+        // The UI polls the lag endpoint, so log the dropped keys once per call rather than one line each.
+        if (!droppedProperties.isEmpty()) {
+            LOGGER.info("Not passing consumer properties {} from the topology to the Kafka spout lag monitor, "
+                + "only these properties are passed on: {}", droppedProperties, ALLOWED_EXTRA_PROPERTIES);
+        }
+        if (!extraProperties.isEmpty()) {
+            try {
+                file = Files.createTempFile("kafka-consumer-extra", "props").toFile();
+                file.deleteOnExit();
+                Properties properties = new Properties();
+                properties.putAll(extraProperties);
+                try (FileOutputStream fos = new FileOutputStream(file)) {
+                    properties.store(fos, "Kafka consumer extra properties");
+                }
+            } catch (IOException ex) {
+                // ignore
+            }
+        }
+        return file;
     }
 
-    private static Map<String, Object> getLagResultForKafka (String spoutId, SpoutSpec spoutSpec, Map<String, Object> topologyConf, boolean old) throws IOException {
+    private static void addLagResultForKafkaSpout(Map<String, Map<String, Object>> finalResult, String spoutId, SpoutSpec spoutSpec)
+        throws IOException {
+        ComponentCommon componentCommon = spoutSpec.get_common();
+        String json = componentCommon.get_json_conf();
+        if (!Strings.isNullOrEmpty(json)) {
+            Map<String, Object> jsonMap = null;
+            try {
+                jsonMap = (Map<String, Object>) JSONValue.parseWithException(json);
+            } catch (ParseException e) {
+                throw new IOException(e);
+            }
+
+            if (jsonMap.containsKey(TOPICS_CONFIG)
+                && jsonMap.containsKey(GROUPID_CONFIG)
+                && jsonMap.containsKey(BOOTSTRAP_CONFIG)) {
+                finalResult.put(spoutId, getLagResultForNewKafkaSpout(spoutId, spoutSpec));
+            }
+        }
+    }
+
+    private static Map<String, Object> getLagResultForKafka(String spoutId, SpoutSpec spoutSpec) throws IOException {
         ComponentCommon componentCommon = spoutSpec.get_common();
         String json = componentCommon.get_json_conf();
         Map<String, Object> result = null;
-        String errorMsg = "Offset lags for kafka not supported for older versions. Please update kafka spout to latest version.";
-        if (json != null && !json.isEmpty()) {
+        String errorMsg = new StringBuilder("Make sure Kafka spout version is latest and ")
+            .append(TOPICS_CONFIG)
+            .append(", ")
+            .append(GROUPID_CONFIG)
+            .append(" & ")
+            .append(BOOTSTRAP_CONFIG)
+            .append(" are not null for newer versions of Kafka spout.")
+            .toString();
+        if (!Strings.isNullOrEmpty(json)) {
             List<String> commands = new ArrayList<>();
             String stormHomeDir = System.getenv("STORM_BASE_DIR");
             if (stormHomeDir != null && !stormHomeDir.endsWith("/")) {
@@ -156,20 +214,50 @@ public class TopologySpoutLag {
             } catch (ParseException e) {
                 throw new IOException(e);
             }
-            commands.addAll(old ? getCommandLineOptionsForOldKafkaSpout(jsonMap, topologyConf) : getCommandLineOptionsForNewKafkaSpout(jsonMap));
+            commands.addAll(getCommandLineOptionsForNewKafkaSpout(jsonMap));
 
-            logger.debug("Command to run: {}", commands);
+            File extraPropertiesFile = createExtraPropertiesFile(jsonMap);
+            if (extraPropertiesFile != null) {
+                commands.add("-c");
+                commands.add(extraPropertiesFile.getAbsolutePath());
+            }
+            LOGGER.debug("Command to run: {}", commands);
 
-            // if commands contains one or more null value, spout is compiled with lower version of storm-kafka / storm-kafka-client
-            if (!commands.contains(null)) {
-                String resultFromMonitor = new ShellCommandRunnerImpl().execCommand(commands.toArray(new String[0]));
-
+            // if commands contains one or more null value, spout is compiled with lower version of storm-kafka-client
+            if (!commands.contains(null) && !isKafkaMonitorInstalled()) {
+                errorMsg = "Kafka spout lag monitoring is unavailable because the storm-kafka-monitor "
+                    + "jars are not installed. They ship only in the full binary distribution; on the "
+                    + "lite distribution run 'bin/storm-kafka-monitor-fetch' on the UI host (and restart "
+                    + "the UI) to enable it.";
+                if (!warnedMonitorMissing) {
+                    warnedMonitorMissing = true;
+                    LOGGER.info(errorMsg);
+                }
+                if (extraPropertiesFile != null) {
+                    extraPropertiesFile.delete();
+                }
+            } else if (!commands.contains(null)) {
                 try {
-                    result = (Map<String, Object>) JSONValue.parseWithException(resultFromMonitor);
-                } catch (ParseException e) {
-                    logger.debug("JSON parsing failed, assuming message as error message: {}", resultFromMonitor);
-                    // json parsing fail -> error received
-                    errorMsg = resultFromMonitor;
+                    String resultFromMonitor = new ShellCommandRunnerImpl().execCommand(commands.toArray(new String[0]));
+
+                    try {
+                        Object parsed = JSONValue.parseWithException(resultFromMonitor);
+                        if (parsed instanceof Map) {
+                            result = (Map<String, Object>) parsed;
+                        } else {
+                            // json-smart parses unquoted plain text leniently as a String, so we can land here
+                            // when the monitor printed an error message instead of JSON; surface it as the error.
+                            LOGGER.debug("Monitor returned non-JSON output, treating as error: {}", resultFromMonitor);
+                            errorMsg = resultFromMonitor;
+                        }
+                    } catch (ParseException e) {
+                        LOGGER.debug("JSON parsing failed, assuming message as error message: {}", resultFromMonitor);
+                        errorMsg = resultFromMonitor;
+                    }
+                } finally {
+                    if (extraPropertiesFile != null) {
+                        extraPropertiesFile.delete();
+                    }
                 }
             }
         }
@@ -187,11 +275,7 @@ public class TopologySpoutLag {
         return kafkaSpoutLagInfo;
     }
 
-    private static Map<String, Object> getLagResultForNewKafkaSpout (String spoutId, SpoutSpec spoutSpec, Map<String, Object> topologyConf) throws IOException {
-        return getLagResultForKafka(spoutId, spoutSpec, topologyConf, false);
-    }
-
-    private static Map<String, Object> getLagResultForOldKafkaSpout (String spoutId, SpoutSpec spoutSpec, Map<String, Object> topologyConf) throws IOException {
-        return getLagResultForKafka(spoutId, spoutSpec, topologyConf, true);
+    private static Map<String, Object> getLagResultForNewKafkaSpout(String spoutId, SpoutSpec spoutSpec) throws IOException {
+        return getLagResultForKafka(spoutId, spoutSpec);
     }
 }

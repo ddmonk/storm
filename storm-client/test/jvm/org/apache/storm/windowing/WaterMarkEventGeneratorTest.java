@@ -1,38 +1,33 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
+
 package org.apache.storm.windowing;
 
-import org.apache.storm.generated.GlobalStreamId;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.Mockito;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
-import static org.junit.Assert.*;
+import org.apache.storm.generated.GlobalStreamId;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for {@link WaterMarkEventGenerator}
+ * Unit tests for {@link WaterMarkEventGenerator}.
  */
 public class WaterMarkEventGeneratorTest {
     WaterMarkEventGenerator<Integer> waterMarkEventGenerator;
@@ -43,7 +38,7 @@ public class WaterMarkEventGeneratorTest {
         return new GlobalStreamId(component, "default");
     }
 
-    @Before
+    @BeforeEach
     public void setUp() {
         windowManager = new WindowManager<Integer>(null) {
             @Override
@@ -53,17 +48,17 @@ public class WaterMarkEventGeneratorTest {
         };
         // set watermark interval to a high value and trigger manually to fix timing issues
         waterMarkEventGenerator = new WaterMarkEventGenerator<>(windowManager, 100000, 5,
-                                                                Collections.singleton(streamId("s1")));
+                Collections.singleton(streamId("s1")));
         waterMarkEventGenerator.start();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         waterMarkEventGenerator.shutdown();
     }
 
     @Test
-    public void testTrackSingleStream() throws Exception {
+    public void testTrackSingleStream() {
         waterMarkEventGenerator.track(streamId("s1"), 100);
         waterMarkEventGenerator.track(streamId("s1"), 110);
         waterMarkEventGenerator.run();
@@ -72,7 +67,7 @@ public class WaterMarkEventGeneratorTest {
     }
 
     @Test
-    public void testTrackSingleStreamOutOfOrder() throws Exception {
+    public void testTrackSingleStreamOutOfOrder() {
         waterMarkEventGenerator.track(streamId("s1"), 100);
         waterMarkEventGenerator.track(streamId("s1"), 110);
         waterMarkEventGenerator.track(streamId("s1"), 104);
@@ -82,7 +77,7 @@ public class WaterMarkEventGeneratorTest {
     }
 
     @Test
-    public void testTrackTwoStreams() throws Exception {
+    public void testTrackTwoStreams() {
         Set<GlobalStreamId> streams = new HashSet<>();
         streams.add(streamId("s1"));
         streams.add(streamId("s2"));
@@ -100,13 +95,13 @@ public class WaterMarkEventGeneratorTest {
     }
 
     @Test
-    public void testNoEvents() throws Exception {
+    public void testNoEvents() {
         waterMarkEventGenerator.run();
         assertTrue(eventList.isEmpty());
     }
 
     @Test
-    public void testLateEvent() throws Exception {
+    public void testLateEvent() {
         assertTrue(waterMarkEventGenerator.track(streamId("s1"), 100));
         assertTrue(waterMarkEventGenerator.track(streamId("s1"), 110));
         waterMarkEventGenerator.run();

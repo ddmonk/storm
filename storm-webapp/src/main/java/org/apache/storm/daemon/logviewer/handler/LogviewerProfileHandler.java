@@ -28,34 +28,52 @@ import static j2html.TagCreator.title;
 import static j2html.TagCreator.ul;
 import static java.util.stream.Collectors.toList;
 
+import com.codahale.metrics.Meter;
 import j2html.tags.DomContent;
+
+import jakarta.ws.rs.core.Response;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.channels.Channels;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
-import javax.ws.rs.core.Response;
+import java.util.regex.Pattern;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.storm.daemon.logviewer.utils.DirectoryCleaner;
+import org.apache.storm.daemon.logviewer.utils.ExceptionMeterNames;
+import org.apache.storm.daemon.logviewer.utils.LogFilePaths;
 import org.apache.storm.daemon.logviewer.utils.LogviewerResponseBuilder;
 import org.apache.storm.daemon.logviewer.utils.ResourceAuthorizer;
-import org.apache.storm.utils.ServerUtils;
+import org.apache.storm.metric.StormMetricsRegistry;
 
 public class LogviewerProfileHandler {
 
     public static final String WORKER_LOG_FILENAME = "worker.log";
-    private final String logRoot;
+
+    private static final Pattern PORT_PATTERN = Pattern.compile("[0-9]+");
+
+    private final Meter numFileDownloadExceptions;
+
+    private final Path logRoot;
     private final ResourceAuthorizer resourceAuthorizer;
+    private final DirectoryCleaner directoryCleaner;
 
     /**
      * Constructor.
      *
      * @param logRoot worker log root directory
      * @param resourceAuthorizer {@link ResourceAuthorizer}
+     * @param metricsRegistry The logviewer metrisc registry
      */
-    public LogviewerProfileHandler(String logRoot, ResourceAuthorizer resourceAuthorizer) {
-        this.logRoot = logRoot;
+    public LogviewerProfileHandler(String logRoot, ResourceAuthorizer resourceAuthorizer, StormMetricsRegistry metricsRegistry) {
+        this.logRoot = Paths.get(logRoot).toAbsolutePath().normalize();
         this.resourceAuthorizer = resourceAuthorizer;
+        this.numFileDownloadExceptions = metricsRegistry.registerMeter(ExceptionMeterNames.NUM_FILE_DOWNLOAD_EXCEPTIONS);
+        this.directoryCleaner = new DirectoryCleaner(metricsRegistry);
     }
 
     /**
@@ -67,13 +85,22 @@ public class LogviewerProfileHandler {
      * @return The HTML page representing list page of dump files
      */
     public Response listDumpFiles(String topologyId, String hostPort, String user) throws IOException {
-        String portStr = hostPort.split(":")[1];
-        File dir = new File(String.join(File.separator, logRoot, topologyId, portStr));
+        String portStr = getPort(hostPort);
+        if (portStr == null) {
+            return LogviewerResponseBuilder.buildResponsePageNotFound();
+        }
+        Path rawDir = logRoot.resolve(topologyId).resolve(portStr);
+        Path absDir = rawDir.toAbsolutePath().normalize();
+        if (!absDir.startsWith(logRoot) || !rawDir.normalize().toString().equals(rawDir.toString())) {
+            //Ensure filename doesn't contain ../ parts 
+            return LogviewerResponseBuilder.buildResponsePageNotFound();
+        }
 
-        if (dir.exists()) {
+        //A port directory must not be reached through a symbolic link, otherwise it is answered like a missing directory
+        if (LogFilePaths.isWorkerDirWithoutSymbolicLink(logRoot, absDir)) {
             String workerFileRelativePath = String.join(File.separator, topologyId, portStr, WORKER_LOG_FILENAME);
             if (resourceAuthorizer.isUserAllowedToAccessFile(user, workerFileRelativePath)) {
-                String content = buildDumpFileListPage(topologyId, hostPort, dir);
+                String content = buildDumpFileListPage(topologyId, hostPort, absDir.toFile());
                 return LogviewerResponseBuilder.buildSuccessHtmlResponse(content);
             } else {
                 return LogviewerResponseBuilder.buildResponseUnauthorizedUser(user);
@@ -91,17 +118,43 @@ public class LogviewerProfileHandler {
      * @param fileName dump file name
      * @param user username
      * @return a Response which lets browsers download that file.
-     * @see {@link org.apache.storm.daemon.logviewer.utils.LogFileDownloader#downloadFile(String, String, boolean)}
      */
     public Response downloadDumpFile(String topologyId, String hostPort, String fileName, String user) throws IOException {
-        String portStr = hostPort.split(":")[1];
-        File dir = new File(String.join(File.separator, logRoot, topologyId, portStr));
-        File file = new File(dir, fileName);
+        String portStr = getPort(hostPort);
+        if (portStr == null) {
+            return LogviewerResponseBuilder.buildResponsePageNotFound();
+        }
+        String host = hostPort.substring(0, hostPort.lastIndexOf(':'));
+        Path rawFile = logRoot.resolve(topologyId).resolve(portStr).resolve(fileName);
+        Path absFile = rawFile.toAbsolutePath().normalize();
+        if (!absFile.startsWith(logRoot) || !rawFile.normalize().toString().equals(rawFile.toString())) {
+            //Ensure filename doesn't contain ../ parts 
+            return LogviewerResponseBuilder.buildResponsePageNotFound();
+        }
 
-        if (dir.exists() && file.exists()) {
+        if (Paths.get(fileName).getNameCount() != 1) {
+            //A dump file is a direct child of the port directory
+            return LogviewerResponseBuilder.buildResponsePageNotFound();
+        }
+
+        //A dump file must be a direct child of a port directory and must not be reached through a symbolic link,
+        //otherwise it is answered like a missing file
+        if (LogFilePaths.isServableWorkerFile(logRoot, absFile)) {
             String workerFileRelativePath = String.join(File.separator, topologyId, portStr, WORKER_LOG_FILENAME);
             if (resourceAuthorizer.isUserAllowedToAccessFile(user, workerFileRelativePath)) {
-                return LogviewerResponseBuilder.buildDownloadFile(file);
+                String downloadedFileName = host + "-" + topologyId + "-" + portStr + "-" + absFile.getFileName();
+                SeekableByteChannel channel;
+                try {
+                    channel = LogFilePaths.openWorkerFile(logRoot, absFile);
+                } catch (IOException e) {
+                    numFileDownloadExceptions.mark();
+                    throw e;
+                }
+                if (channel == null) {
+                    //The dump file was removed or replaced by a symbolic link after the check
+                    return LogviewerResponseBuilder.buildResponsePageNotFound();
+                }
+                return LogviewerResponseBuilder.buildDownloadFile(downloadedFileName, Channels.newInputStream(channel));
             } else {
                 return LogviewerResponseBuilder.buildResponseUnauthorizedUser(user);
             }
@@ -110,31 +163,46 @@ public class LogviewerProfileHandler {
         }
     }
 
+    /**
+     * Get the port part of "host:port", the host may contain ':' itself (e.g. "[::1]:6700"). Returns null if the port is missing or
+     * not a number, so it can not name anything other than a port directory.
+     */
+    private static String getPort(String hostPort) {
+        String portStr = hostPort.substring(hostPort.lastIndexOf(':') + 1);
+        if (hostPort.indexOf(':') < 0 || !PORT_PATTERN.matcher(portStr).matches()) {
+            return null;
+        }
+        return portStr;
+    }
+
     private String buildDumpFileListPage(String topologyId, String hostPort, File dir) throws IOException {
         List<DomContent> liTags = getProfilerDumpFiles(dir).stream()
-                .map(file -> li(a(file).withHref("/api/v1/dumps/" + topologyId + "/" + hostPort + "/" + file)))
-                .collect(toList());
+            .map(file -> li(a(file).withHref("/api/v1/dumps/" + topologyId + "/" + hostPort + "/" + file)))
+            .collect(toList());
 
         return html(
-                head(
-                        title("File Dumps - Storm Log Viewer"),
-                        link().withRel("stylesheet").withHref("/css/bootstrap-3.3.1.min.css"),
-                        link().withRel("stylesheet").withHref("/css/jquery.dataTables.1.10.4.min.css"),
-                        link().withRel("stylesheet").withHref("/css/style.css")
-                ),
-                body(
-                        ul(liTags.toArray(new DomContent[]{}))
-                )
+            head(
+                title("File Dumps - Storm Log Viewer"),
+                link().withRel("stylesheet").withHref("/css/bootstrap-3.3.1.min.css"),
+                link().withRel("stylesheet").withHref("/css/jquery.dataTables.1.10.4.min.css"),
+                link().withRel("stylesheet").withHref("/css/style.css")
+            ),
+            body(
+                ul(liTags.toArray(new DomContent[]{}))
+            )
         ).render();
     }
 
     private List<String> getProfilerDumpFiles(File dir) throws IOException {
-        List<File> filesForDir = DirectoryCleaner.getFilesForDir(dir);
-        return filesForDir.stream().filter(file -> {
-            String fileName = file.getName();
-            return StringUtils.isNotEmpty(fileName)
+        List<Path> filesForDir = directoryCleaner.getFilesForDir(dir.toPath());
+        return filesForDir.stream()
+            .filter(LogFilePaths::isRegularFileNotLink)
+            .map(path -> path.toFile())
+            .filter(file -> {
+                String fileName = file.getName();
+                return StringUtils.isNotEmpty(fileName)
                     && (fileName.endsWith(".txt") || fileName.endsWith(".jfr") || fileName.endsWith(".bin"));
-        }).map(File::getName).collect(toList());
+            }).map(File::getName).collect(toList());
     }
 
 }

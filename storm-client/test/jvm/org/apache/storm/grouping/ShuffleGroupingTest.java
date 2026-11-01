@@ -1,37 +1,31 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
+
 package org.apache.storm.grouping;
 
-import com.google.common.collect.Lists;
-import org.apache.storm.task.WorkerTopologyContext;
-import org.junit.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 import java.util.List;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
 import java.util.concurrent.Executors;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.mock;
+import java.util.concurrent.Future;
+import org.apache.storm.shade.com.google.common.collect.Lists;
+import org.apache.storm.task.WorkerTopologyContext;
+import org.junit.jupiter.api.Test;
 
 public class ShuffleGroupingTest {
 
@@ -61,22 +55,23 @@ public class ShuffleGroupingTest {
             List<Integer> taskIds = grouper.chooseTasks(inputTaskId, Lists.newArrayList());
 
             // Validate a single task id return
-            assertNotNull("Not null taskId list returned", taskIds);
-            assertEquals("Single task Id returned", 1, taskIds.size());
+            assertNotNull(taskIds, "Not null taskId list returned");
+            assertEquals(1, taskIds.size(), "Single task Id not returned");
 
             int taskId = taskIds.get(0);
 
-            assertTrue("TaskId should exist", taskId >= 0 && taskId < numTasks);
+            assertTrue(taskId >= 0 && taskId < numTasks, "TaskId should exist");
             taskCounts[taskId]++;
         }
 
         for (int i = 0; i < numTasks; i++) {
-            assertEquals("Distribution should be even for all nodes", 5000, taskCounts[i]);
+            assertEquals(5000, taskCounts[i], "Distribution should be even for all nodes");
         }
     }
 
     /**
-     * Tests that we round robbin correctly with multiple threads using ShuffleGrouping implementation.
+     * Tests that we round robbin correctly with multiple threads using ShuffleGrouping
+     * implementation.
      */
     @Test
     public void testShuffleGroupMultiThreaded() throws InterruptedException, ExecutionException {
@@ -100,25 +95,23 @@ public class ShuffleGroupingTest {
         grouper.prepare(context, null, availableTaskIds);
 
         List<Callable<int[]>> threadTasks = Lists.newArrayList();
-        for (int x=0; x < numThreads; x++) {
-            Callable<int[]> threadTask = new Callable<int[]>() {
-                @Override
-                public int[] call() throws Exception {
-                    int[] taskCounts = new int[availableTaskIds.size()];
-                    for (int i = 1; i <= groupingExecutionsPerThread; i++) {
-                        List<Integer> taskIds = grouper.chooseTasks(inputTaskId, Lists.newArrayList());
+        for (int x = 0; x < numThreads; x++) {
+            Callable<int[]> threadTask = () -> {
+                int[] taskCounts = new int[availableTaskIds.size()];
+                for (int i = 1; i <= groupingExecutionsPerThread; i++) {
+                    List<Integer> taskIds = grouper.chooseTasks(inputTaskId, Lists.newArrayList());
 
-                        // Validate a single task id return
-                        assertNotNull("Not null taskId list returned", taskIds);
-                        assertEquals("Single task Id returned", 1, taskIds.size());
+                    // Validate a single task id return
+                    assertNotNull(taskIds, "Not null taskId list returned");
+                    assertEquals(1, taskIds.size(), "Single task Id not returned");
 
-                        int taskId = taskIds.get(0);
+                    int taskId = taskIds.get(0);
 
-                        assertTrue("TaskId should exist", taskId >= 0 && taskId < availableTaskIds.size());
-                        taskCounts[taskId]++;
-                    }
-                    return taskCounts;
+                    assertTrue(taskId >= 0 && taskId < availableTaskIds.size(),
+                            "TaskId should exist");
+                    taskCounts[taskId]++;
                 }
+                return taskCounts;
             };
 
             // Add to our collection.
@@ -130,11 +123,11 @@ public class ShuffleGroupingTest {
 
         // Wait for all tasks to complete
         int[] taskIdTotals = new int[numTasks];
-        for (Future taskResult: taskResults) {
+        for (Future<int[]> taskResult : taskResults) {
             while (!taskResult.isDone()) {
                 Thread.sleep(1000);
             }
-            int[] taskDistributions = (int[]) taskResult.get();
+            int[] taskDistributions = taskResult.get();
             for (int i = 0; i < taskDistributions.length; i++) {
                 taskIdTotals[i] += taskDistributions[i];
             }

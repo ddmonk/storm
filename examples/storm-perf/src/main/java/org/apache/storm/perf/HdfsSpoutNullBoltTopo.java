@@ -19,7 +19,6 @@
 package org.apache.storm.perf;
 
 import java.util.Map;
-
 import org.apache.storm.Config;
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.hdfs.spout.HdfsSpout;
@@ -29,13 +28,13 @@ import org.apache.storm.perf.utils.Helper;
 import org.apache.storm.topology.TopologyBuilder;
 import org.apache.storm.utils.Utils;
 
-/***
+/**
  * This topo helps measure speed of reading from Hdfs.
- *  Spout Reads from Hdfs.
- *  Bolt acks and discards tuples
+ *
+ * <p>Spout Reads from Hdfs.
+ *
+ * <p>Bolt acks and discards tuples.
  */
-
-
 public class HdfsSpoutNullBoltTopo {
     public static final int DEFAULT_SPOUT_NUM = 1;
     public static final int DEFAULT_BOLT_NUM = 1;
@@ -61,15 +60,14 @@ public class HdfsSpoutNullBoltTopo {
         final String archiveDir = Helper.getStr(config, ARCHIVE_DIR);
         final String badDir = Helper.getStr(config, BAD_DIR);
 
-
         // 1 -  Setup Hdfs Spout   --------
         HdfsSpout spout = new HdfsSpout()
-            .setReaderType(fileFormat)
-            .setHdfsUri(hdfsUri)
-            .setSourceDir(sourceDir)
-            .setArchiveDir(archiveDir)
-            .setBadFilesDir(badDir)
-            .withOutputFields(TextFileReader.defaultFields);
+                .setReaderType(fileFormat)
+                .setHdfsUri(hdfsUri)
+                .setSourceDir(sourceDir)
+                .setArchiveDir(archiveDir)
+                .setBadFilesDir(badDir)
+                .withOutputFields(TextFileReader.defaultFields);
 
         // 2 -   DevNull Bolt   --------
         DevNullBolt bolt = new DevNullBolt();
@@ -78,7 +76,7 @@ public class HdfsSpoutNullBoltTopo {
         TopologyBuilder builder = new TopologyBuilder();
         builder.setSpout(SPOUT_ID, spout, spoutNum);
         builder.setBolt(BOLT_ID, bolt, boltNum)
-            .localOrShuffleGrouping(SPOUT_ID);
+                .localOrShuffleGrouping(SPOUT_ID);
 
         return builder.createTopology();
     }
@@ -93,13 +91,15 @@ public class HdfsSpoutNullBoltTopo {
         Config topoConf = new Config();
         topoConf.putAll(Utils.findAndReadConfigFile(args[1]));
         topoConf.put(Config.TOPOLOGY_PRODUCER_BATCH_SIZE, 1000);
-        topoConf.put(Config.TOPOLOGY_BOLT_WAIT_STRATEGY, "org.apache.storm.policy.WaitStrategyPark");
+        topoConf.put(Config.TOPOLOGY_BOLT_WAIT_STRATEGY,
+                "org.apache.storm.policy.WaitStrategyPark");
         topoConf.put(Config.TOPOLOGY_BOLT_WAIT_PARK_MICROSEC, 0);
         topoConf.put(Config.TOPOLOGY_DISABLE_LOADAWARE_MESSAGING, true);
         topoConf.put(Config.TOPOLOGY_STATS_SAMPLE_RATE, 0.0005);
 
         topoConf.putAll(Utils.readCommandLineOpts());
         // Submit to Storm cluster
-        Helper.runOnClusterAndPrintMetrics(durationSec, TOPOLOGY_NAME, topoConf, getTopology(topoConf));
+        Helper.runOnClusterAndPrintMetrics(durationSec, TOPOLOGY_NAME, topoConf,
+                getTopology(topoConf));
     }
 }

@@ -1,54 +1,59 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
+
 package org.apache.storm.messaging.netty;
 
 import java.util.ArrayList;
 import java.util.List;
-
 import org.apache.storm.messaging.TaskMessage;
 import org.apache.storm.serialization.KryoValuesDeserializer;
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.channel.Channel;
-import org.jboss.netty.channel.ChannelHandlerContext;
-import org.jboss.netty.handler.codec.frame.FrameDecoder;
+import org.apache.storm.shade.io.netty.buffer.ByteBuf;
+import org.apache.storm.shade.io.netty.channel.ChannelHandlerContext;
+import org.apache.storm.shade.io.netty.handler.codec.ByteToMessageDecoder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class MessageDecoder extends FrameDecoder {
+public class MessageDecoder extends ByteToMessageDecoder {
 
-    private KryoValuesDeserializer deser;
+    private static final Logger LOG = LoggerFactory.getLogger(MessageDecoder.class);
+    private static final int MAX_UNAUTHENTICATED_SASL_TOKEN_BYTES = 64 * 1024;
+    private final KryoValuesDeserializer deser;
+    private final boolean serverAuthRequired;
 
     public MessageDecoder(KryoValuesDeserializer deser) {
+        this(deser, false);
+    }
+
+    public MessageDecoder(KryoValuesDeserializer deser, boolean serverAuthRequired) {
         this.deser = deser;
+        this.serverAuthRequired = serverAuthRequired;
     }
 
     /*
-         * Each ControlMessage is encoded as:
-         *  code (<0) ... short(2)
-         * Each TaskMessage is encoded as:
-         *  task (>=0) ... short(2)
-         *  len ... int(4)
-         *  payload ... byte[]     *
-         */
-    protected Object decode(ChannelHandlerContext ctx, Channel channel, ChannelBuffer buf) throws Exception {
+     * Each ControlMessage is encoded as:
+     *  code (<0) ... short(2)
+     * Each TaskMessage is encoded as:
+     *  task (>=0) ... short(2)
+     *  len ... int(4)
+     *  payload ... byte[]     *
+     */
+    @Override
+    protected void decode(ChannelHandlerContext ctx, ByteBuf buf,
+        List<Object> out) throws Exception {
         // Make sure that we have received at least a short 
         long available = buf.readableBytes();
         if (available < 2) {
-            //need more data
-            return null;
+            // need more data
+            return;
         }
 
         List<Object> ret = new ArrayList<>();
@@ -67,64 +72,83 @@ public class MessageDecoder extends FrameDecoder {
             available -= 2;
 
             // case 1: Control message
-            ControlMessage ctrl_msg = ControlMessage.mkMessage(code);
-            if (ctrl_msg != null) {
+            ControlMessage controlMessage = ControlMessage.mkMessage(code);
+            if (controlMessage != null) {
 
-                if (ctrl_msg == ControlMessage.EOB_MESSAGE) {
+                if (controlMessage == ControlMessage.EOB_MESSAGE) {
                     continue;
                 } else {
-                    return ctrl_msg;
+                    out.add(controlMessage);
+                    return;
                 }
             }
-            
-            //case 2: SaslTokenMessageRequest
-            if(code == SaslMessageToken.IDENTIFIER) {
-            	// Make sure that we have received at least an integer (length) 
+
+            // case 2: SaslTokenMessageRequest
+            if (code == SaslMessageToken.IDENTIFIER) {
+                // Make sure that we have received at least an integer (length)
                 if (buf.readableBytes() < 4) {
-                    //need more data
+                    // need more data
                     buf.resetReaderIndex();
-                    return null;
+                    return;
                 }
-                
+
                 // Read the length field.
                 int length = buf.readInt();
-                if (length<=0) {
-                    return new SaslMessageToken(null);
+                if (gateFrames(ctx) && length > MAX_UNAUTHENTICATED_SASL_TOKEN_BYTES) {
+                    discardAndClose(ctx, buf, "an oversized handshake frame");
+                    return;
                 }
-                
+                if (length <= 0) {
+                    out.add(new SaslMessageToken(null));
+                    return;
+                }
+
                 // Make sure if there's enough bytes in the buffer.
                 if (buf.readableBytes() < length) {
                     // The whole bytes were not received yet - return null.
                     buf.resetReaderIndex();
-                    return null;
+                    return;
                 }
-                
+
                 // There's enough bytes in the buffer. Read it.  
-                ChannelBuffer payload = buf.readBytes(length);
-                
+                byte[] bytes = new byte[length];
+                buf.readBytes(bytes);
                 // Successfully decoded a frame.
                 // Return a SaslTokenMessageRequest object
-                return new SaslMessageToken(payload.array());
+                out.add(new SaslMessageToken(bytes));
+                return;
             }
 
             // case 3: BackPressureStatus
             if (code == BackPressureStatus.IDENTIFIER) {
+                if (gateFrames(ctx)) {
+                    discardAndClose(ctx, buf, "a status frame before the handshake completed");
+                    return;
+                }
                 available = buf.readableBytes();
-                if(available < 4)
-                    return null;
+                if (available < 4) {
+                    // Need  more data
+                    buf.resetReaderIndex();
+                    return;
+                }
                 int dataLen = buf.readInt();
                 if (available < 4 + dataLen) {
                     // need more data
                     buf.resetReaderIndex();
-                    return null;
+                    return;
                 }
                 byte[] bytes = new byte[dataLen];
                 buf.readBytes(bytes);
-                return BackPressureStatus.read(bytes, deser);
-
+                out.add(BackPressureStatus.read(bytes, deser));
+                return;
             }
 
             // case 4: task Message
+
+            if (gateFrames(ctx)) {
+                discardAndClose(ctx, buf, "a data frame before the handshake completed");
+                return;
+            }
 
             // Make sure that we have received at least an integer (length)
             if (available < 4) {
@@ -152,18 +176,38 @@ public class MessageDecoder extends FrameDecoder {
             available -= length;
 
             // There's enough bytes in the buffer. Read it.
-            ChannelBuffer payload = buf.readBytes(length);
-
+            byte[] bytes = new byte[length];
+            buf.readBytes(bytes);
 
             // Successfully decoded a frame.
             // Return a TaskMessage object
-            ret.add(new TaskMessage(code, payload.array()));
+            ret.add(new TaskMessage(code, bytes));
         }
 
-        if (ret.size() == 0) {
-            return null;
-        } else {
-            return ret;
+        if (!ret.isEmpty()) {
+            out.add(ret);
         }
+    }
+
+    private boolean gateFrames(ChannelHandlerContext ctx) {
+        if (!serverAuthRequired) {
+            return false;
+        }
+        SaslNettyServer saslNettyServer = ctx.channel().attr(SaslNettyServerState.SASL_NETTY_SERVER)
+                .get();
+        return saslNettyServer == null || !saslNettyServer.isComplete();
+    }
+
+    private static void discardAndClose(ChannelHandlerContext ctx, ByteBuf buf, String what) {
+        LOG.warn("Channel {} sent {}; closing the connection", ctx.channel(), what);
+        buf.skipBytes(buf.readableBytes());
+        ctx.close();
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        LOG.error("Exception thrown while decoding messages in channel {}; exception: ", ctx
+                .channel(), cause);
+        ctx.close();
     }
 }

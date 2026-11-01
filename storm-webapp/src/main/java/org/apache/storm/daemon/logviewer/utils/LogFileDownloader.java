@@ -18,15 +18,27 @@
 
 package org.apache.storm.daemon.logviewer.utils;
 
-import java.io.File;
-import java.io.IOException;
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.Meter;
 
-import javax.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response;
+
+import java.io.IOException;
+import java.nio.channels.Channels;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import org.apache.commons.io.FileUtils;
+import org.apache.storm.metric.StormMetricsRegistry;
+
 
 public class LogFileDownloader {
-
-    private final String logRoot;
-    private final String daemonLogRoot;
+    private final Histogram fileDownloadSizeDistMb;
+    private final Meter numFileDownloadExceptions;
+    private final Path logRoot;
+    private final Path daemonLogRoot;
+    private final WorkerLogs workerLogs;
     private final ResourceAuthorizer resourceAuthorizer;
 
     /**
@@ -34,28 +46,85 @@ public class LogFileDownloader {
      *
      * @param logRoot root worker log directory
      * @param daemonLogRoot root daemon log directory
+     * @param workerLogs {@link WorkerLogs}
      * @param resourceAuthorizer {@link ResourceAuthorizer}
+     * @param metricsRegistry The logviewer metrics registry
      */
-    public LogFileDownloader(String logRoot, String daemonLogRoot, ResourceAuthorizer resourceAuthorizer) {
-        this.logRoot = logRoot;
-        this.daemonLogRoot = daemonLogRoot;
+    public LogFileDownloader(String logRoot, String daemonLogRoot, WorkerLogs workerLogs,
+        ResourceAuthorizer resourceAuthorizer, StormMetricsRegistry metricsRegistry) {
+        this.logRoot = Paths.get(logRoot).toAbsolutePath().normalize();
+        this.daemonLogRoot = Paths.get(daemonLogRoot).toAbsolutePath().normalize();
+        this.workerLogs = workerLogs;
         this.resourceAuthorizer = resourceAuthorizer;
+        this.fileDownloadSizeDistMb = metricsRegistry.registerHistogram("logviewer:download-file-size-rounded-MB");
+        this.numFileDownloadExceptions = metricsRegistry.registerMeter(ExceptionMeterNames.NUM_FILE_DOWNLOAD_EXCEPTIONS);
     }
 
     /**
      * Checks authorization for the log file and download.
      *
+     * @param host host address
      * @param fileName file to download
      * @param user username
      * @param isDaemon true if the file is a daemon log, false if the file is an worker log
      * @return a Response which lets browsers download that file.
      */
-    public Response downloadFile(String fileName, String user, boolean isDaemon) throws IOException {
-        String rootDir = isDaemon ? daemonLogRoot : logRoot;
-        File file = new File(rootDir, fileName).getCanonicalFile();
-        if (file.exists()) {
-            if (isDaemon || resourceAuthorizer.isUserAllowedToAccessFile(user, fileName)) {
-                return LogviewerResponseBuilder.buildDownloadFile(file);
+    public Response downloadFile(String host, String fileName, String user, boolean isDaemon) throws IOException {
+        Path rootDir = isDaemon ? daemonLogRoot : logRoot;
+        Path rawFile = rootDir.resolve(fileName);
+        Path file = rawFile.toAbsolutePath().normalize();
+        if (!file.startsWith(rootDir) || !rawFile.normalize().toString().equals(rawFile.toString())) {
+            //Ensure filename doesn't contain ../ parts 
+            return LogviewerResponseBuilder.buildResponsePageNotFound();
+        }
+        if (isDaemon && Paths.get(fileName).getNameCount() != 1) {
+            //Prevent daemon log reads from pathing into worker logs
+            return LogviewerResponseBuilder.buildResponsePageNotFound();
+        }
+
+        //A worker log must be a direct child of a port directory and must not be reached through a symbolic link,
+        //otherwise it is answered like a missing file
+        boolean exists = isDaemon ? file.toFile().exists() : LogFilePaths.isServableWorkerFile(rootDir, file);
+        if (exists) {
+            if (isDaemon ? resourceAuthorizer.isUserAllowedToAccessDaemonFile(user)
+                    : resourceAuthorizer.isUserAllowedToAccessFile(user, fileName)) {
+                if (!isDaemon) {
+                    //Only widen the permission of a worker log once the request is known to be served
+                    workerLogs.setLogFilePermission(fileName);
+                }
+                String downloadedFileName;
+                if (isDaemon) {
+                    downloadedFileName = host + "-" + rawFile.getFileName();
+                } else {
+                    //host-topoId-port-fileName
+                    Path pathRelativeToRootDir = rootDir.relativize(file);
+                    downloadedFileName = host + "-"
+                        + pathRelativeToRootDir.getName(0) + "-"
+                        + pathRelativeToRootDir.getName(1) + "-"
+                        + pathRelativeToRootDir.getName(2);
+                }
+                //A daemon log may be a symbolic link, a worker log is opened without following one
+                SeekableByteChannel channel;
+                try {
+                    channel = isDaemon ? LogFilePaths.openForReading(file, true) : LogFilePaths.openWorkerFile(rootDir, file);
+                } catch (IOException e) {
+                    numFileDownloadExceptions.mark();
+                    throw e;
+                }
+                if (channel == null) {
+                    //The log file was removed or replaced by a symbolic link after the check
+                    return LogviewerResponseBuilder.buildResponsePageNotFound();
+                }
+                long size;
+                try {
+                    size = channel.size();
+                } catch (IOException e) {
+                    channel.close();
+                    numFileDownloadExceptions.mark();
+                    throw e;
+                }
+                fileDownloadSizeDistMb.update(Math.round((double) size / FileUtils.ONE_MB));
+                return LogviewerResponseBuilder.buildDownloadFile(downloadedFileName, Channels.newInputStream(channel));
             } else {
                 return LogviewerResponseBuilder.buildResponseUnauthorizedUser(user);
             }

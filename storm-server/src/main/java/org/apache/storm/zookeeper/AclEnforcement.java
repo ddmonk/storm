@@ -1,19 +1,13 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 
 package org.apache.storm.zookeeper;
@@ -27,7 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.security.auth.Subject;
-import org.apache.curator.framework.CuratorFramework;
 import org.apache.storm.Config;
 import org.apache.storm.blobstore.BlobStore;
 import org.apache.storm.callback.DefaultWatcherCallBack;
@@ -37,14 +30,16 @@ import org.apache.storm.generated.KeyNotFoundException;
 import org.apache.storm.generated.WorkerTokenServiceType;
 import org.apache.storm.nimbus.NimbusInfo;
 import org.apache.storm.security.auth.NimbusPrincipal;
+import org.apache.storm.shade.org.apache.curator.framework.CuratorFramework;
+import org.apache.storm.shade.org.apache.zookeeper.KeeperException;
+import org.apache.storm.shade.org.apache.zookeeper.ZooDefs;
+import org.apache.storm.shade.org.apache.zookeeper.data.ACL;
+import org.apache.storm.shade.org.apache.zookeeper.data.Id;
+import org.apache.storm.shade.org.apache.zookeeper.server.auth.DigestAuthenticationProvider;
+import org.apache.storm.utils.ConfigUtils;
 import org.apache.storm.utils.ObjectReader;
 import org.apache.storm.utils.ServerUtils;
 import org.apache.storm.utils.Utils;
-import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.ZooDefs;
-import org.apache.zookeeper.data.ACL;
-import org.apache.zookeeper.data.Id;
-import org.apache.zookeeper.server.auth.DigestAuthenticationProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,7 +68,7 @@ public class AclEnforcement {
         List<ACL> drpcFullAcl = new ArrayList<>(2);
         drpcFullAcl.add(superUserAcl);
 
-        String drpcAclString = (String)conf.get(Config.STORM_ZOOKEEPER_DRPC_ACL);
+        String drpcAclString = (String) conf.get(Config.STORM_ZOOKEEPER_DRPC_ACL);
         if (drpcAclString != null) {
             Id drpcAclId = Utils.parseZkId(drpcAclString, Config.STORM_ZOOKEEPER_DRPC_ACL);
             ACL drpcUserAcl = new ACL(ZooDefs.Perms.READ, drpcAclId);
@@ -85,7 +80,7 @@ public class AclEnforcement {
         String stormRoot = (String) conf.get(Config.STORM_ZOOKEEPER_ROOT);
 
         try (CuratorFramework zk = ClientZookeeper.mkClient(conf, zkServers, port, "",
-            new DefaultWatcherCallBack(), conf, DaemonType.NIMBUS)) {
+                                                            new DefaultWatcherCallBack(), conf, DaemonType.NIMBUS)) {
             if (zk.checkExists().forPath(stormRoot) != null) {
                 //First off we want to verify that ROOT is good
                 verifyAclStrict(zk, superAcl, stormRoot, fixUp);
@@ -97,7 +92,7 @@ public class AclEnforcement {
 
         // Now that the root is fine we can start to look at the other paths under it.
         try (CuratorFramework zk = ClientZookeeper.mkClient(conf, zkServers, port, stormRoot,
-            new DefaultWatcherCallBack(), conf, DaemonType.NIMBUS)) {
+                                                            new DefaultWatcherCallBack(), conf, DaemonType.NIMBUS)) {
             //Next verify that the blob store is correct before we start it up.
             if (zk.checkExists().forPath(ClusterUtils.BLOBSTORE_SUBTREE) != null) {
                 verifyAclStrictRecursive(zk, superAcl, ClusterUtils.BLOBSTORE_SUBTREE, fixUp);
@@ -115,11 +110,11 @@ public class AclEnforcement {
 
             Map<String, Id> topoToZkCreds = new HashMap<>();
             //Now lets get the creds for the topos so we can verify those as well.
-            BlobStore bs = ServerUtils.getNimbusBlobStore(conf, NimbusInfo.fromConf(conf));
+            BlobStore bs = ServerUtils.getNimbusBlobStore(conf, NimbusInfo.fromConf(conf), null);
             try {
                 Subject nimbusSubject = new Subject();
                 nimbusSubject.getPrincipals().add(new NimbusPrincipal());
-                for (String topoId: topoIds) {
+                for (String topoId : topoIds) {
                     try {
                         String blobKey = topoId + "-stormconf.ser";
                         Map<String, Object> topoConf = Utils.fromCompressedJsonConf(bs.readBlob(blobKey, nimbusSubject));
@@ -210,7 +205,7 @@ public class AclEnforcement {
     }
 
     private static void verifyParentWithTopoChildrenDeleteDead(CuratorFramework zk, ACL superUserAcl, String path,
-                                                     Map<String, Id> topoToZkCreds, boolean fixUp, int perms) throws Exception {
+                                                               Map<String, Id> topoToZkCreds, boolean fixUp, int perms) throws Exception {
         if (zk.checkExists().forPath(path) != null) {
             verifyAclStrict(zk, Arrays.asList(superUserAcl), path, fixUp);
             Set<String> possiblyBadIds = new HashSet<>();
@@ -228,7 +223,7 @@ public class AclEnforcement {
             if (!possiblyBadIds.isEmpty()) {
                 //Lets reread the children in STORMS as the source of truth and see if a new one was created in the background
                 possiblyBadIds.removeAll(zk.getChildren().forPath(ClusterUtils.STORMS_SUBTREE));
-                for (String topoId: possiblyBadIds) {
+                for (String topoId : possiblyBadIds) {
                     //Now we know for sure that this is a bad id
                     String childPath = path + ClusterUtils.ZK_SEPERATOR + topoId;
                     zk.delete().deletingChildrenIfNeeded().forPath(childPath);
@@ -238,12 +233,12 @@ public class AclEnforcement {
     }
 
     private static void verifyParentWithReadOnlyTopoChildrenDeleteDead(CuratorFramework zk, ACL superUserAcl, String path,
-                                                             Map<String, Id> topoToZkCreds, boolean fixUp) throws Exception {
+                                                                       Map<String, Id> topoToZkCreds, boolean fixUp) throws Exception {
         verifyParentWithTopoChildrenDeleteDead(zk, superUserAcl, path, topoToZkCreds, fixUp, ZooDefs.Perms.READ);
     }
 
     private static void verifyParentWithReadWriteTopoChildrenDeleteDead(CuratorFramework zk, ACL superUserAcl, String path,
-                                                              Map<String, Id> topoToZkCreds, boolean fixUp) throws Exception {
+                                                                        Map<String, Id> topoToZkCreds, boolean fixUp) throws Exception {
         verifyParentWithTopoChildrenDeleteDead(zk, superUserAcl, path, topoToZkCreds, fixUp, ZooDefs.Perms.ALL);
     }
 
@@ -271,7 +266,7 @@ public class AclEnforcement {
 
     private static void verifyAclStrictRecursive(CuratorFramework zk, List<ACL> strictAcl, String path, boolean fixUp) throws Exception {
         verifyAclStrict(zk, strictAcl, path, fixUp);
-        for (String child: zk.getChildren().forPath(path)) {
+        for (String child : zk.getChildren().forPath(path)) {
             String newPath = path + ClusterUtils.ZK_SEPERATOR + child;
             verifyAclStrictRecursive(zk, strictAcl, newPath, fixUp);
         }
@@ -295,8 +290,8 @@ public class AclEnforcement {
 
     private static boolean equivalent(List<ACL> a, List<ACL> b) {
         if (a.size() == b.size()) {
-            for (ACL aAcl: a) {
-                if (!b.contains(aAcl)) {
+            for (ACL acl : a) {
+                if (!b.contains(acl)) {
                     return false;
                 }
             }
@@ -305,10 +300,10 @@ public class AclEnforcement {
         return false;
     }
 
-    public static void main(String [] args) throws Exception {
-        Map<String, Object> conf = Utils.readStormConfig();
+    public static void main(String[] args) throws Exception {
+        Map<String, Object> conf = ConfigUtils.readStormConfig();
         boolean fixUp = false;
-        for (String arg: args) {
+        for (String arg : args) {
             String a = arg.toLowerCase();
             if ("-f".equals(a) || "--fixup".equals(a)) {
                 fixUp = true;

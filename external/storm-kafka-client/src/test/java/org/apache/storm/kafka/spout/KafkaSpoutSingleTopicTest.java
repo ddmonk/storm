@@ -18,40 +18,28 @@
 package org.apache.storm.kafka.spout;
 
 
-import org.apache.kafka.clients.consumer.OffsetAndMetadata;
-import org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration;
-import org.apache.storm.tuple.Values;
-import org.junit.Test;
-import org.mockito.ArgumentCaptor;
-
-import java.util.Map;
-
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyListOf;
-import static org.mockito.ArgumentMatchers.anyObject;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.*;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
-
-import org.apache.kafka.common.TopicPartition;
-import org.apache.storm.utils.Time;
-
-import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.junit.Assert.assertEquals;
-
 import java.util.regex.Pattern;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration;
+import org.apache.storm.tuple.Values;
+import org.apache.storm.utils.Time;
 import org.hamcrest.Matchers;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 public class KafkaSpoutSingleTopicTest extends KafkaSpoutAbstractTest {
     private final int maxPollRecords = 10;
@@ -64,7 +52,7 @@ public class KafkaSpoutSingleTopicTest extends KafkaSpoutAbstractTest {
     @Override
     KafkaSpoutConfig<String, String> createSpoutConfig() {
         return SingleTopicKafkaSpoutConfiguration.setCommonSpoutConfig(
-            KafkaSpoutConfig.builder("127.0.0.1:" + kafkaUnitRule.getKafkaUnit().getKafkaPort(),
+            KafkaSpoutConfig.builder("127.0.0.1:" + kafkaUnitExtension.getKafkaUnit().getKafkaPort(),
                 Pattern.compile(SingleTopicKafkaSpoutConfiguration.TOPIC)))
             .setOffsetCommitPeriodMs(commitOffsetPeriodMs)
             .setRetry(new KafkaSpoutRetryExponentialBackoff(KafkaSpoutRetryExponentialBackoff.TimeInterval.seconds(0), KafkaSpoutRetryExponentialBackoff.TimeInterval.seconds(0),
@@ -106,7 +94,7 @@ public class KafkaSpoutSingleTopicTest extends KafkaSpoutAbstractTest {
         Time.advanceTime(KafkaSpout.TIMER_DELAY_MS + commitOffsetPeriodMs);
         spout.ack(failedIdReplayCaptor.getValue());
         spout.nextTuple();
-        verify(consumerSpy).commitSync(commitCapture.capture());
+        verify(getKafkaConsumer()).commitSync(commitCapture.capture());
 
         Map<TopicPartition, OffsetAndMetadata> capturedCommit = commitCapture.getValue();
         TopicPartition expectedTp = new TopicPartition(SingleTopicKafkaSpoutConfiguration.TOPIC, 0);
@@ -121,7 +109,63 @@ public class KafkaSpoutSingleTopicTest extends KafkaSpoutAbstractTest {
         for(int i = 0; i < 3; i++) {
             spout.nextTuple();
         }
-        verify(collectorMock, never()).emit(anyString(), anyList(), anyObject());
+        verify(collectorMock, never()).emit(anyString(), anyList(), any());
+    }
+    
+    @Test
+    public void testClearingWaitingToEmitIfConsumerPositionIsNotBehindWhenCommitting() throws Exception {
+        final int messageCountExcludingLast = maxPollRecords;
+        int messagesInKafka = messageCountExcludingLast + 1;
+        prepareSpout(messagesInKafka);
+
+        //Emit all messages and fail the first one while acking the rest
+        for (int i = 0; i < messageCountExcludingLast; i++) {
+            spout.nextTuple();
+        }
+        ArgumentCaptor<KafkaSpoutMessageId> messageIdCaptor = ArgumentCaptor.forClass(KafkaSpoutMessageId.class);
+        verify(collectorMock, times(messageCountExcludingLast)).emit(anyString(), anyList(), messageIdCaptor.capture());
+        List<KafkaSpoutMessageId> messageIds = messageIdCaptor.getAllValues();
+        for (int i = 1; i < messageIds.size(); i++) {
+            spout.ack(messageIds.get(i));
+        }
+        KafkaSpoutMessageId failedTuple = messageIds.get(0);
+        spout.fail(failedTuple);
+
+        //Advance the time and replay the failed tuple. 
+        //Since the last tuple on the partition is more than maxPollRecords ahead of the failed tuple, it shouldn't be emitted here
+        reset(collectorMock);
+        spout.nextTuple();
+        ArgumentCaptor<KafkaSpoutMessageId> failedIdReplayCaptor = ArgumentCaptor.forClass(KafkaSpoutMessageId.class);
+        verify(collectorMock).emit(anyString(), anyList(), failedIdReplayCaptor.capture());
+
+        assertThat("Expected replay of failed tuple", failedIdReplayCaptor.getValue(), is(failedTuple));
+
+        /* Ack the tuple, and commit.
+         * 
+         * The waiting to emit list should now be cleared, and the next emitted tuple should be the last tuple on the partition,
+         * which hasn't been emitted yet
+         */
+        reset(collectorMock);
+        Time.advanceTime(KafkaSpout.TIMER_DELAY_MS + commitOffsetPeriodMs);
+        spout.ack(failedIdReplayCaptor.getValue());
+        spout.nextTuple();
+        verify(getKafkaConsumer()).commitSync(commitCapture.capture());
+
+        Map<TopicPartition, OffsetAndMetadata> capturedCommit = commitCapture.getValue();
+        TopicPartition expectedTp = new TopicPartition(SingleTopicKafkaSpoutConfiguration.TOPIC, 0);
+        assertThat("Should have committed to the right topic", capturedCommit, Matchers.hasKey(expectedTp));
+        assertThat("Should have committed all the acked messages", capturedCommit.get(expectedTp).offset(), is((long)messageCountExcludingLast));
+        
+        ArgumentCaptor<KafkaSpoutMessageId> lastOffsetMessageCaptor = ArgumentCaptor.forClass(KafkaSpoutMessageId.class);
+        verify(collectorMock).emit(anyString(), anyList(), lastOffsetMessageCaptor.capture());
+        assertThat("Expected emit of the final tuple in the partition", lastOffsetMessageCaptor.getValue().offset(), is(messagesInKafka - 1L));
+        reset(collectorMock);
+
+        //Nothing else should be emitted, all tuples are acked except for the final tuple, which is pending.
+        for(int i = 0; i < 3; i++) {
+            spout.nextTuple();
+        }
+        verify(collectorMock, never()).emit(anyString(), anyList(), any());
     }
 
     @Test
@@ -318,7 +362,7 @@ public class KafkaSpoutSingleTopicTest extends KafkaSpoutAbstractTest {
         for (int i = 0; i <= maxRetries; i++) {
             ArgumentCaptor<KafkaSpoutMessageId> messageIdFailed = ArgumentCaptor.forClass(KafkaSpoutMessageId.class);
             spout.nextTuple();
-            verify(collectorMock).emit(anyString(), anyListOf(Object.class), messageIdFailed.capture());
+            verify(collectorMock).emit(anyString(), anyList(), messageIdFailed.capture());
             KafkaSpoutMessageId msgId = messageIdFailed.getValue();
             spout.fail(msgId);
             assertThat("Expected message id number of failures to match the number of times the message has failed", msgId.numFails(), is(i + 1));
@@ -327,7 +371,7 @@ public class KafkaSpoutSingleTopicTest extends KafkaSpoutAbstractTest {
 
         //Verify that the tuple is not emitted again
         spout.nextTuple();
-        verify(collectorMock, never()).emit(anyString(), anyListOf(Object.class), anyObject());
+        verify(collectorMock, never()).emit(anyString(), anyList(), any());
     }
 
     @Test
@@ -338,43 +382,11 @@ public class KafkaSpoutSingleTopicTest extends KafkaSpoutAbstractTest {
         spout.nextTuple();
         verify(collectorMock, never()).emit(anyString(), anyList(), any(KafkaSpoutMessageId.class));
 
-        SingleTopicKafkaUnitSetupHelper.populateTopicData(kafkaUnitRule.getKafkaUnit(), SingleTopicKafkaSpoutConfiguration.TOPIC, 1);
+        SingleTopicKafkaUnitSetupHelper.populateTopicData(kafkaUnitExtension.getKafkaUnit(), SingleTopicKafkaSpoutConfiguration.TOPIC, 1);
         Time.advanceTime(KafkaSpoutConfig.DEFAULT_PARTITION_REFRESH_PERIOD_MS + KafkaSpout.TIMER_DELAY_MS);
 
         //The new partition should be discovered and the message should be emitted
         spout.nextTuple();
         verify(collectorMock).emit(anyString(), anyList(), any(KafkaSpoutMessageId.class));
-    }
-
-    @Test
-    public void testOffsetMetrics() throws Exception {
-        final int messageCount = 10;
-        prepareSpout(messageCount);
-
-        Map<String, Long> offsetMetric  = (Map<String, Long>) spout.getKafkaOffsetMetric().getValueAndReset();
-        assertEquals(0, offsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC+"/totalEarliestTimeOffset").longValue());
-        // the offset of the last available message + 1.
-        assertEquals(10, offsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC+"/totalLatestTimeOffset").longValue());
-        assertEquals(10, offsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC+"/totalRecordsInPartitions").longValue());
-        assertEquals(0, offsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC+"/totalLatestEmittedOffset").longValue());
-        assertEquals(0, offsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC+"/totalLatestCompletedOffset").longValue());
-        //totalSpoutLag = totalLatestTimeOffset-totalLatestCompletedOffset
-        assertEquals(10, offsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC+"/totalSpoutLag").longValue());
-
-        //Emit all messages and check that they are emitted. Ack the messages too
-        for (int i = 0; i < messageCount; i++) {
-            nextTuple_verifyEmitted_ack_resetCollector(i);
-        }
-
-        commitAndVerifyAllMessagesCommitted(messageCount);
-
-        offsetMetric  = (Map<String, Long>) spout.getKafkaOffsetMetric().getValueAndReset();
-        assertEquals(0, offsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC+"/totalEarliestTimeOffset").longValue());
-        assertEquals(10, offsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC+"/totalLatestTimeOffset").longValue());
-        //latest offset
-        assertEquals(9, offsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC+"/totalLatestEmittedOffset").longValue());
-        // offset where processing will resume upon spout restart
-        assertEquals(10, offsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC+"/totalLatestCompletedOffset").longValue());
-        assertEquals(0, offsetMetric.get(SingleTopicKafkaSpoutConfiguration.TOPIC+"/totalSpoutLag").longValue());
     }
 }

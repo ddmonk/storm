@@ -31,7 +31,7 @@ the layout and configuration of your topologies.
    in your topology code
  * Support for existing topology code (see below)
  * Define Storm Core API (Spouts/Bolts) using a flexible YAML DSL
- * YAML DSL support for most Storm components (storm-kafka, storm-hdfs, storm-hbase, etc.)
+ * YAML DSL support for most Storm components (storm-kafka-client, storm-hdfs, storm-hbase, etc.)
  * Convenient support for multi-lang components
  * External property substitution/filtering for easily switching between configurations/environments (similar to Maven-style
    `${variable.name}` substitution)
@@ -47,7 +47,7 @@ The easiest way to use Flux, is to add it as a Maven dependency in you project a
 If you would like to build Flux from source and run the unit/integration tests, you will need the following installed
 on your system:
 
-* Python 2.6.x or later
+* Python 3.0.x or later
 * Node.js 0.10.x or later
 
 #### Building with unit tests enabled:
@@ -244,6 +244,7 @@ definition consists of the following:
       * A list of spouts, each identified by a unique ID
       * A list of bolts, each identified by a unique ID
       * A list of "stream" objects representing a flow of tuples between spouts and bolts
+      * (Optional) A list of "workerHooks", each identifed by a unique ID
   4. **OR** (A JVM class that can produce a `org.apache.storm.generated.StormTopology` instance:
       * A `topologySource` definition.
 
@@ -286,6 +287,10 @@ streams:
     grouping:
       type: SHUFFLE
 
+# worker hook definitions
+workerHooks:
+  - id: "base-worker-hook"
+    className: "org.apache.storm.hooks.BaseWorkerHook"
 
 ```
 ## Property Substitution/Filtering
@@ -341,6 +346,41 @@ components:
   - id: "stringScheme"
     className: "org.apache.storm.kafka.StringScheme"
 ```
+
+### Static factory methods
+It is also possible to use static factory methods from Flux. Given the following Java code:
+
+```java
+public class TestBolt extends BaseBasicBolt {
+  public static TestBolt newInstance(Duration triggerTime) {
+    return new TestBolt(triggerTime);
+  }
+}
+```
+
+```java
+public class Duration {
+  public static Duration ofSeconds(long seconds) {
+    return new Duration(seconds);
+  }
+}
+```
+
+it is possible to use the factory methods as follows:
+
+```yaml
+components:
+  - id: "time"
+    className: "java.time.Duration"
+    factory: "ofSeconds"
+
+bolts:
+  - id: "testBolt"
+    className: "org.apache.storm.flux.test.TestBolt"
+    factory: "newInstance"
+    factoryArgs:
+      - ref: "time"
+``` 
 
 ### Contructor Arguments, References, Properties and Configuration Methods
 
@@ -444,7 +484,7 @@ well.
 ### Using Java `enum`s in Contructor Arguments, References, Properties and Configuration Methods
 You can easily use Java `enum` values as arguments in a Flux YAML file, simply by referencing the name of the `enum`.
 
-For example, [Storm's HDFS module]() includes the following `enum` definition (simplified for brevity):
+For example, [Storm's HDFS module](storm-hdfs.html) includes the following `enum` definition (simplified for brevity):
 
 ```java
 public static enum Units {
@@ -614,7 +654,7 @@ bolts:
     className: "org.apache.storm.flux.wrappers.bolts.FluxShellBolt"
     constructorArgs:
       # command line
-      - ["python", "splitsentence.py"]
+      - ["python3", "splitsentence.py"]
       # output fields
       - ["word"]
     parallelism: 1
@@ -730,6 +770,16 @@ The `override` property controls how includes affect the values defined in the c
 
 **N.B.:** Includes are not yet recursive. Includes from included files will be ignored.
 
+## Worker Hooks
+Flux allows you to attach topology components that can be executed when a worker starts, and when a worker shuts down. It can be useful when you want to execute operations before topology processing starts, or cleanup operations before your workers shut down, e.g. managing application context. Worker Hooks should be an implementation of [IWorkerHook]({{page.git-blob-base}}/storm-client/src/jvm/org/apache/storm/hooks/IWorkerHook.java). Other than that, they follow similar Bean definition semantics as [Components](##Components) for declaration within yaml file.
+
+Worker Hooks are specified as a map of bean definitions:
+
+```yaml
+workerHooks:
+  - id: "base-worker-hook"
+    className: "org.apache.storm.hooks.BaseWorkerHook"
+```
 
 ## Basic Word Count Example
 
@@ -761,7 +811,7 @@ bolts:
     className: "org.apache.storm.flux.wrappers.bolts.FluxShellBolt"
     constructorArgs:
       # command line
-      - ["python", "splitsentence.py"]
+      - ["python3", "splitsentence.py"]
       # output fields
       - ["word"]
     parallelism: 1

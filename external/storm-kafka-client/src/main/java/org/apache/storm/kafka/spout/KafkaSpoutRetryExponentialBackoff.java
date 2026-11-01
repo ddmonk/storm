@@ -28,7 +28,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
-import org.apache.commons.lang.Validate;
+import org.apache.commons.lang3.Validate;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.storm.utils.Time;
 import org.slf4j.Logger;
@@ -73,7 +73,7 @@ public class KafkaSpoutRetryExponentialBackoff implements KafkaSpoutRetryService
         private final KafkaSpoutMessageId msgId;
         private long nextRetryTimeNanos;
 
-        public RetrySchedule(KafkaSpoutMessageId msgId, long nextRetryTimeNanos) {
+        RetrySchedule(KafkaSpoutMessageId msgId, long nextRetryTimeNanos) {
             this.msgId = msgId;
             this.nextRetryTimeNanos = nextRetryTimeNanos;
             LOG.debug("Created {}", this);
@@ -156,7 +156,11 @@ public class KafkaSpoutRetryExponentialBackoff implements KafkaSpoutRetryService
      * where failCount = 1, 2, 3, ... nextRetry = Min(nextRetry, currentTime + maxDelay).
      * <p/>
      * By specifying a value for maxRetries lower than Integer.MAX_VALUE, the user decides to sacrifice guarantee of delivery for the
-     * previous polled records in favor of processing more records.
+     * previous polled records in favor of processing more records. Setting a finite limit also stops the spout from retrying forever
+     * tuples that fail every time they are emitted, e.g. tuples the receiving worker drops because they cannot be deserialized:
+     * once the limit is reached, the tuple is acked and offsets past it can be committed. These tuples are reported to
+     * {@link KafkaTupleListener#onMaxRetryReached(KafkaSpoutMessageId)}, which receives the topic, partition and offset needed
+     * to fetch the record from Kafka again.
      *
      * @param initialDelay      initial delay of the first retry
      * @param delayPeriod       the time interval that is the ratio of the exponential backoff formula (geometric progression)
@@ -302,7 +306,7 @@ public class KafkaSpoutRetryExponentialBackoff implements KafkaSpoutRetryService
         final long currentTimeNanos = Time.nanoTime();
         final long nextTimeNanos = msgId.numFails() == 1                // numFails = 1, 2, 3, ...
                 ? currentTimeNanos + initialDelay.lengthNanos
-                : currentTimeNanos + delayPeriod.lengthNanos * (long)(Math.pow(2, msgId.numFails() - 1));
+                : currentTimeNanos + delayPeriod.lengthNanos * (long) (Math.pow(2, msgId.numFails() - 1));
         return Math.min(nextTimeNanos, currentTimeNanos + maxDelay.lengthNanos);
     }
 

@@ -1,22 +1,25 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
+
 package org.apache.storm.topology;
 
+import static org.apache.storm.spout.CheckPointState.Action.ROLLBACK;
+import static org.apache.storm.spout.CheckpointSpout.CHECKPOINT_FIELD_ACTION;
+import static org.apache.storm.spout.CheckpointSpout.CHECKPOINT_FIELD_TXID;
+import static org.apache.storm.spout.CheckpointSpout.CHECKPOINT_STREAM_ID;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.apache.storm.generated.GlobalStreamId;
 import org.apache.storm.spout.CheckPointState;
 import org.apache.storm.spout.CheckpointSpout;
@@ -28,24 +31,15 @@ import org.apache.storm.tuple.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import static org.apache.storm.spout.CheckPointState.Action.ROLLBACK;
-import static org.apache.storm.spout.CheckpointSpout.CHECKPOINT_FIELD_ACTION;
-import static org.apache.storm.spout.CheckpointSpout.CHECKPOINT_FIELD_TXID;
-import static org.apache.storm.spout.CheckpointSpout.CHECKPOINT_STREAM_ID;
-
 /**
  * Base class that abstracts the common logic for executing bolts in a stateful topology.
  */
 public abstract class BaseStatefulBoltExecutor implements IRichBolt {
     private static final Logger LOG = LoggerFactory.getLogger(BaseStatefulBoltExecutor.class);
     private final Map<TransactionRequest, Integer> transactionRequestCount;
+    protected OutputCollector collector;
     private int checkPointInputTaskCount;
     private long lastTxid = Long.MIN_VALUE;
-    protected OutputCollector collector;
 
     public BaseStatefulBoltExecutor() {
         transactionRequestCount = new HashMap<>();
@@ -57,8 +51,8 @@ public abstract class BaseStatefulBoltExecutor implements IRichBolt {
     }
 
     /**
-     * returns the total number of input checkpoint streams across
-     * all input tasks to this component.
+     * Returns the total number of input checkpoint streams across all input tasks to this
+     * component.
      */
     private int getCheckpointInputTaskCount(TopologyContext context) {
         int count = 0;
@@ -80,11 +74,12 @@ public abstract class BaseStatefulBoltExecutor implements IRichBolt {
     }
 
     /**
-     * Invokes handleCheckpoint once checkpoint tuple is received on
-     * all input checkpoint streams to this component.
+     * Invokes handleCheckpoint once checkpoint tuple is received on all input checkpoint streams to
+     * this component.
      */
     private void processCheckpoint(Tuple input) {
-        CheckPointState.Action action = (CheckPointState.Action) input.getValueByField(CHECKPOINT_FIELD_ACTION);
+        CheckPointState.Action action = (CheckPointState.Action) input
+                .getValueByField(CHECKPOINT_FIELD_ACTION);
         long txid = input.getLongByField(CHECKPOINT_FIELD_TXID);
         if (shouldProcessTransaction(action, txid)) {
             LOG.debug("Processing action {}, txid {}", action, txid);
@@ -106,15 +101,16 @@ public abstract class BaseStatefulBoltExecutor implements IRichBolt {
                 collector.reportError(th);
             }
         } else {
-            LOG.debug("Waiting for action {}, txid {} from all input tasks. checkPointInputTaskCount {}, " +
-                              "transactionRequestCount {}", action, txid, checkPointInputTaskCount, transactionRequestCount);
+            LOG.debug("Waiting for action {}, txid {} from all input tasks. "
+                    + "checkPointInputTaskCount {}, "
+                    + "transactionRequestCount {}", action, txid, checkPointInputTaskCount, transactionRequestCount);
             collector.ack(input);
         }
     }
 
     /**
-     * Checks if check points have been received from all tasks across
-     * all input streams to this component
+     * Checks if check points have been received from all tasks across all input streams to this
+     * component.
      */
     private boolean shouldProcessTransaction(CheckPointState.Action action, long txid) {
         TransactionRequest request = new TransactionRequest(action, txid);
@@ -133,7 +129,8 @@ public abstract class BaseStatefulBoltExecutor implements IRichBolt {
     }
 
     protected void declareCheckpointStream(OutputFieldsDeclarer declarer) {
-        declarer.declareStream(CHECKPOINT_STREAM_ID, new Fields(CHECKPOINT_FIELD_TXID, CHECKPOINT_FIELD_ACTION));
+        declarer.declareStream(CHECKPOINT_STREAM_ID, new Fields(CHECKPOINT_FIELD_TXID,
+                CHECKPOINT_FIELD_ACTION));
     }
 
     /**
@@ -150,7 +147,8 @@ public abstract class BaseStatefulBoltExecutor implements IRichBolt {
      * @param action          the action (prepare, commit, rollback or initstate)
      * @param txid            the transaction id.
      */
-    protected abstract void handleCheckpoint(Tuple checkpointTuple, CheckPointState.Action action, long txid);
+    protected abstract void handleCheckpoint(Tuple checkpointTuple, CheckPointState.Action action,
+            long txid);
 
     protected static class AnchoringOutputCollector extends OutputCollector {
         AnchoringOutputCollector(IOutputCollector delegate) {
@@ -159,12 +157,14 @@ public abstract class BaseStatefulBoltExecutor implements IRichBolt {
 
         @Override
         public List<Integer> emit(String streamId, List<Object> tuple) {
-            throw new UnsupportedOperationException("Bolts in a stateful topology must emit anchored tuples.");
+            throw new UnsupportedOperationException("Bolts in a stateful topology must emit "
+                    + "anchored tuples.");
         }
 
         @Override
         public void emitDirect(int taskId, String streamId, List<Object> tuple) {
-            throw new UnsupportedOperationException("Bolts in a stateful topology must emit anchored tuples.");
+            throw new UnsupportedOperationException("Bolts in a stateful topology must emit "
+                    + "anchored tuples.");
         }
     }
 
@@ -180,12 +180,18 @@ public abstract class BaseStatefulBoltExecutor implements IRichBolt {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
 
             TransactionRequest that = (TransactionRequest) o;
 
-            if (txid != that.txid) return false;
+            if (txid != that.txid) {
+                return false;
+            }
             return !(action != null ? !action.equals(that.action) : that.action != null);
 
         }
@@ -199,10 +205,10 @@ public abstract class BaseStatefulBoltExecutor implements IRichBolt {
 
         @Override
         public String toString() {
-            return "TransactionRequest{" +
-                    "action='" + action + '\'' +
-                    ", txid=" + txid +
-                    '}';
+            return "TransactionRequest{"
+                    + "action='" + action + '\''
+                    + ", txid=" + txid
+                    + '}';
         }
 
     }

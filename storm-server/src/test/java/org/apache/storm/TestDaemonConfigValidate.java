@@ -18,23 +18,22 @@
 
 package org.apache.storm;
 
-import org.apache.storm.validation.ConfigValidation;
-import org.junit.Assert;
-import org.junit.Test;
-
-import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
+import org.apache.storm.validation.ConfigValidation;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class TestDaemonConfigValidate {
 
     @Test
-    public void testSupervisorSchedulerMetaIsStringMap() throws InvocationTargetException, NoSuchMethodException, NoSuchFieldException, InstantiationException, IllegalAccessException {
-        Map<String, Object> conf = new HashMap<String, Object>();
-        Map<String, Object> schedulerMeta = new HashMap<String, Object>();
+    public void testSupervisorSchedulerMetaIsStringMap() {
+        Map<String, Object> conf = new HashMap<>();
+        Map<String, Object> schedulerMeta = new HashMap<>();
         conf.put(DaemonConfig.SUPERVISOR_SCHEDULER_META, schedulerMeta);
         ConfigValidation.validateFields(conf);
 
@@ -44,17 +43,14 @@ public class TestDaemonConfigValidate {
         ConfigValidation.validateFields(conf);
 
         schedulerMeta.put("baz", true);
-        try {
-            ConfigValidation.validateFields(conf);
-            Assert.fail("Expected Exception not Thrown");
-        } catch (IllegalArgumentException ex) {
-        }
+        assertThrows(IllegalArgumentException.class, () -> ConfigValidation.validateFields(conf),
+            "Expected Exception not Thrown");
     }
 
     @Test
-    public void testIsolationSchedulerMachinesIsMap() throws InvocationTargetException, NoSuchMethodException, NoSuchFieldException, InstantiationException, IllegalAccessException {
-        Map<String, Object> conf = new HashMap<String, Object>();
-        Map<String, Integer> isolationMap = new HashMap<String, Integer>();
+    public void testIsolationSchedulerMachinesIsMap() {
+        Map<String, Object> conf = new HashMap<>();
+        Map<String, Integer> isolationMap = new HashMap<>();
         conf.put(DaemonConfig.ISOLATION_SCHEDULER_MACHINES, isolationMap);
         ConfigValidation.validateFields(conf);
 
@@ -65,27 +61,24 @@ public class TestDaemonConfigValidate {
         ConfigValidation.validateFields(conf);
 
         conf.put(DaemonConfig.ISOLATION_SCHEDULER_MACHINES, 42);
-        try {
-            ConfigValidation.validateFields(conf);
-            Assert.fail("Expected Exception not Thrown");
-        } catch (IllegalArgumentException ex) {
-        }
+        assertThrows(IllegalArgumentException.class, () -> ConfigValidation.validateFields(conf),
+            "Expected Exception not Thrown");
     }
 
     @Test
-    public void testSupervisorSlotsPorts() throws InvocationTargetException, NoSuchMethodException, NoSuchFieldException, InstantiationException, IllegalAccessException {
-        Map<String, Object> conf = new HashMap<String, Object>();
-        Collection<Object> passCases = new LinkedList<Object>();
-        Collection<Object> failCases = new LinkedList<Object>();
+    public void testSupervisorSlotsPorts() {
+        Map<String, Object> conf = new HashMap<>();
+        Collection<Object> passCases = new LinkedList<>();
+        Collection<Object> failCases = new LinkedList<>();
 
-        Integer[] test1 = {1233, 1234, 1235};
-        Integer[] test2 = {1233};
+        Integer[] test1 = { 1233, 1234, 1235 };
+        Integer[] test2 = { 1233 };
         passCases.add(Arrays.asList(test1));
         passCases.add(Arrays.asList(test2));
 
-        String[] test3 = {"1233", "1234", "1235"};
+        String[] test3 = { "1233", "1234", "1235" };
         //duplicate case
-        Integer[] test4 = {1233, 1233, 1235};
+        Integer[] test4 = { 1233, 1233, 1235 };
         failCases.add(test3);
         failCases.add(test4);
         failCases.add(null);
@@ -98,12 +91,11 @@ public class TestDaemonConfigValidate {
         }
 
         for (Object value : failCases) {
-            try {
+            assertThrows(IllegalArgumentException.class, () -> {
                 conf.put(DaemonConfig.SUPERVISOR_SLOTS_PORTS, value);
                 ConfigValidation.validateFields(conf);
-                Assert.fail("Expected Exception not Thrown for value: " + value);
-            } catch (IllegalArgumentException Ex) {
-            }
+            },
+                "Expected Exception not Thrown for value: " + value);
         }
     }
 

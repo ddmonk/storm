@@ -1,48 +1,20 @@
-
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
+
 package org.apache.storm.hdfs.spout;
 
-import org.apache.storm.Config;
-import org.apache.storm.spout.SpoutOutputCollector;
-import org.apache.storm.task.TopologyContext;
-import org.apache.hadoop.hdfs.DistributedFileSystem;
-import org.apache.hadoop.io.Writable;
-import org.apache.hadoop.util.ReflectionUtils;
-import org.apache.storm.hdfs.common.HdfsUtils;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.LocatedFileStatus;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.RemoteIterator;
-import org.apache.hadoop.io.IntWritable;
-import org.apache.hadoop.io.SequenceFile;
-import org.apache.hadoop.io.Text;
-import org.junit.Before;
-import org.junit.After;
-import org.junit.BeforeClass;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.core.Is.is;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -54,39 +26,104 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.hdfs.DistributedFileSystem;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.SequenceFile;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.Writable;
+import org.apache.hadoop.util.ReflectionUtils;
+import org.apache.storm.Config;
+import org.apache.storm.hdfs.common.HdfsUtils;
 import org.apache.storm.hdfs.common.HdfsUtils.Pair;
-import org.apache.storm.hdfs.testing.MiniDFSClusterRule;
-import org.junit.ClassRule;
+import org.apache.storm.hdfs.testing.MiniDFSClusterExtensionClassLevel;
+import org.apache.storm.spout.SpoutOutputCollector;
+import org.apache.storm.task.TopologyContext;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.io.TempDir;
 
 public class TestHdfsSpout {
 
-    @ClassRule
-    public static MiniDFSClusterRule DFS_CLUSTER_RULE = new MiniDFSClusterRule();
-    @Rule
-    public TemporaryFolder tempFolder = new TemporaryFolder();
+    private static final Configuration conf = new Configuration();
+    @RegisterExtension
+    public static final MiniDFSClusterExtensionClassLevel DFS_CLUSTER_EXTENSION = new MiniDFSClusterExtensionClassLevel();
+    private static DistributedFileSystem fs;
+    @TempDir
+    public File tempFolder;
     public File baseFolder;
-
     private Path source;
     private Path archive;
     private Path badfiles;
 
-    private static DistributedFileSystem fs;
-    private static final Configuration conf = new Configuration();
-
-    @BeforeClass
+    @BeforeAll
     public static void setupClass() throws IOException {
-        fs = DFS_CLUSTER_RULE.getDfscluster().getFileSystem();
+        fs = DFS_CLUSTER_EXTENSION.getDfscluster().getFileSystem();
     }
 
-    @AfterClass
+    @AfterAll
     public static void teardownClass() throws IOException {
         fs.close();
     }
 
-    @Before
+    private static <T> T getField(HdfsSpout spout, String fieldName) throws NoSuchFieldException, IllegalAccessException {
+        Field readerFld = HdfsSpout.class.getDeclaredField(fieldName);
+        readerFld.setAccessible(true);
+        return (T) readerFld.get(spout);
+    }
+
+    private static boolean getBoolField(HdfsSpout spout, String fieldName) throws NoSuchFieldException, IllegalAccessException {
+        Field readerFld = HdfsSpout.class.getDeclaredField(fieldName);
+        readerFld.setAccessible(true);
+        return readerFld.getBoolean(spout);
+    }
+
+    private static List<String> readTextFile(FileSystem fs, String f) throws IOException {
+        Path file = new Path(f);
+        FSDataInputStream x = fs.open(file);
+        BufferedReader reader = new BufferedReader(new InputStreamReader(x));
+        String line = null;
+        ArrayList<String> result = new ArrayList<>();
+        while ((line = reader.readLine()) != null) {
+            result.add(line);
+        }
+        return result;
+    }
+
+    private static void createSeqFile(FileSystem fs, Path file, int rowCount) throws IOException {
+
+        Configuration conf = new Configuration();
+        try {
+            if (fs.exists(file)) {
+                fs.delete(file, false);
+            }
+
+            SequenceFile.Writer w = SequenceFile.createWriter(fs, conf, file, IntWritable.class, Text.class);
+            for (int i = 0; i < rowCount; i++) {
+                w.append(new IntWritable(i), new Text("line " + i));
+            }
+            w.close();
+            System.out.println("done");
+        } catch (IOException e) {
+            e.printStackTrace();
+
+        }
+    }
+
+    @BeforeEach
     public void setup() throws Exception {
-        baseFolder = tempFolder.newFolder("hdfsspout");
+        baseFolder = new File(tempFolder, "hdfsspout");
+        baseFolder.mkdir();
         source = new Path(baseFolder.toString() + "/source");
         fs.mkdirs(source);
         archive = new Path(baseFolder.toString() + "/archive");
@@ -95,7 +132,7 @@ public class TestHdfsSpout {
         fs.mkdirs(badfiles);
     }
 
-    @After
+    @AfterEach
     public void shutDown() throws IOException {
         fs.delete(new Path(baseFolder.toString()), true);
     }
@@ -154,6 +191,35 @@ public class TestHdfsSpout {
     }
 
     @Test
+    public void testEmptySimpleText_ACK() throws Exception {
+        Path file1 = new Path(source.toString() + "/file_empty.txt");
+        createTextFile(file1, 0);
+
+        //Ensure the second file has a later modified timestamp, as the spout should pick the first file first.
+        Thread.sleep(2);
+
+        Path file2 = new Path(source.toString() + "/file.txt");
+        createTextFile(file2, 5);
+
+        try (AutoCloseableHdfsSpout closeableSpout = makeSpout(Configs.TEXT, TextFileReader.defaultFields)) {
+            HdfsSpout spout = closeableSpout.spout;
+            spout.setCommitFrequencyCount(1);
+
+            Map<String, Object> conf = getCommonConfigs();
+            conf.put(Config.TOPOLOGY_ACKER_EXECUTORS, "1"); // enable ACKing
+            openSpout(spout, 0, conf);
+
+            // Read once. Since the first file is empty, the spout should continue with file 2
+            runSpout(spout, "r6", "a0", "a1", "a2", "a3", "a4");
+            //File 1 should be moved to archive
+            assertThat(fs.isFile(new Path(archive.toString() + "/file_empty.txt")), is(true));
+            //File 2 should be read
+            Path arc2 = new Path(archive.toString() + "/file.txt");
+            checkCollectorOutput_txt((MockCollector) spout.getCollector(), arc2);
+        }
+    }
+
+    @Test
     public void testResumeAbandoned_Text_NoAck() throws Exception {
         Path file1 = new Path(source.toString() + "/file1.txt");
         createTextFile(file1, 6);
@@ -178,7 +244,7 @@ public class TestHdfsSpout {
 
                 // consume file 1 partially
                 List<String> res = runSpout(spout, "r2");
-                Assert.assertEquals(2, res.size());
+                assertEquals(2, res.size());
 
                 // abandon file
                 FileLock lock = getField(spout, "lock");
@@ -186,28 +252,28 @@ public class TestHdfsSpout {
                 Thread.sleep(lockExpirySec * 2 * 1000);
 
                 // check lock file presence
-                Assert.assertTrue(fs.exists(lock.getLockFile()));
+                assertTrue(fs.exists(lock.getLockFile()));
 
                 // create another spout to take over processing and read a few lines
                 List<String> res2 = runSpout(spout2, "r3");
-                Assert.assertEquals(3, res2.size());
+                assertEquals(3, res2.size());
 
                 // check lock file presence
-                Assert.assertTrue(fs.exists(lock.getLockFile()));
+                assertTrue(fs.exists(lock.getLockFile()));
 
                 // check lock file contents
                 List<String> contents = readTextFile(fs, lock.getLockFile().toString());
-                Assert.assertFalse(contents.isEmpty());
+                assertFalse(contents.isEmpty());
 
                 // finish up reading the file
                 res2 = runSpout(spout2, "r2");
-                Assert.assertEquals(4, res2.size());
+                assertEquals(4, res2.size());
 
                 // check lock file is gone
-                Assert.assertFalse(fs.exists(lock.getLockFile()));
+                assertFalse(fs.exists(lock.getLockFile()));
                 FileReader rdr = getField(spout2, "reader");
-                Assert.assertNull(rdr);
-                Assert.assertTrue(getBoolField(spout2, "fileReadCompletely"));
+                assertNull(rdr);
+                assertTrue(getBoolField(spout2, "fileReadCompletely"));
             }
         }
     }
@@ -237,35 +303,35 @@ public class TestHdfsSpout {
 
                 // consume file 1 partially
                 List<String> res = runSpout(spout, "r2");
-                Assert.assertEquals(2, res.size());
+                assertEquals(2, res.size());
                 // abandon file
                 FileLock lock = getField(spout, "lock");
                 TestFileLock.closeUnderlyingLockFile(lock);
                 Thread.sleep(lockExpirySec * 2 * 1000);
 
                 // check lock file presence
-                Assert.assertTrue(fs.exists(lock.getLockFile()));
+                assertTrue(fs.exists(lock.getLockFile()));
 
                 // create another spout to take over processing and read a few lines
                 List<String> res2 = runSpout(spout2, "r3");
-                Assert.assertEquals(3, res2.size());
+                assertEquals(3, res2.size());
 
                 // check lock file presence
-                Assert.assertTrue(fs.exists(lock.getLockFile()));
+                assertTrue(fs.exists(lock.getLockFile()));
 
                 // check lock file contents
                 List<String> contents = getTextFileContents(fs, lock.getLockFile());
-                Assert.assertFalse(contents.isEmpty());
+                assertFalse(contents.isEmpty());
 
                 // finish up reading the file
                 res2 = runSpout(spout2, "r3");
-                Assert.assertEquals(4, res2.size());
+                assertEquals(4, res2.size());
 
                 // check lock file is gone
-                Assert.assertFalse(fs.exists(lock.getLockFile()));
+                assertFalse(fs.exists(lock.getLockFile()));
                 FileReader rdr = getField(spout2, "reader");
-                Assert.assertNull(rdr);
-                Assert.assertTrue(getBoolField(spout2, "fileReadCompletely"));
+                assertNull(rdr);
+                assertTrue(getBoolField(spout2, "fileReadCompletely"));
             }
         }
     }
@@ -281,7 +347,7 @@ public class TestHdfsSpout {
         for (Pair<HdfsSpout.MessageId, List<Object>> item : collector.items) {
             actual.add(item.getValue().get(0).toString());
         }
-        Assert.assertEquals(expected, actual);
+        assertEquals(expected, actual);
     }
 
     private List<String> getTextFileContents(FileSystem fs, Path txtFile) throws IOException {
@@ -303,7 +369,7 @@ public class TestHdfsSpout {
             List<String> lines = getSeqFileContents(fs, seqFile);
             expected.addAll(lines);
         }
-        Assert.assertTrue(expected.equals(collector.lines));
+        assertTrue(expected.equals(collector.lines));
     }
 
     private List<String> getSeqFileContents(FileSystem fs, Path... seqFiles) throws IOException {
@@ -353,26 +419,26 @@ public class TestHdfsSpout {
             // read few lines from file1 dont ack
             runSpout(spout, "r3");
             FileReader reader = getField(spout, "reader");
-            Assert.assertNotNull(reader);
-            Assert.assertEquals(false, getBoolField(spout, "fileReadCompletely"));
+            assertNotNull(reader);
+            assertFalse(getBoolField(spout, "fileReadCompletely"));
 
             // read remaining lines
             runSpout(spout, "r3");
             reader = getField(spout, "reader");
-            Assert.assertNotNull(reader);
-            Assert.assertEquals(true, getBoolField(spout, "fileReadCompletely"));
+            assertNotNull(reader);
+            assertTrue(getBoolField(spout, "fileReadCompletely"));
 
             // ack few
             runSpout(spout, "a0", "a1", "a2");
             reader = getField(spout, "reader");
-            Assert.assertNotNull(reader);
-            Assert.assertEquals(true, getBoolField(spout, "fileReadCompletely"));
+            assertNotNull(reader);
+            assertTrue(getBoolField(spout, "fileReadCompletely"));
 
             //ack rest
             runSpout(spout, "a3", "a4");
             reader = getField(spout, "reader");
-            Assert.assertNull(reader);
-            Assert.assertEquals(true, getBoolField(spout, "fileReadCompletely"));
+            assertNull(reader);
+            assertTrue(getBoolField(spout, "fileReadCompletely"));
 
             // go to next file
             Path file2 = new Path(source.toString() + "/file2.txt");
@@ -380,31 +446,19 @@ public class TestHdfsSpout {
 
             // Read 1 line
             runSpout(spout, "r1");
-            Assert.assertNotNull(getField(spout, "reader"));
-            Assert.assertEquals(false, getBoolField(spout, "fileReadCompletely"));
+            assertNotNull(getField(spout, "reader"));
+            assertFalse(getBoolField(spout, "fileReadCompletely"));
 
             // ack 1 tuple
             runSpout(spout, "a5");
-            Assert.assertNotNull(getField(spout, "reader"));
-            Assert.assertEquals(false, getBoolField(spout, "fileReadCompletely"));
+            assertNotNull(getField(spout, "reader"));
+            assertFalse(getBoolField(spout, "fileReadCompletely"));
 
             // read and ack remaining lines
             runSpout(spout, "r5", "a6", "a7", "a8", "a9");
-            Assert.assertNull(getField(spout, "reader"));
-            Assert.assertEquals(true, getBoolField(spout, "fileReadCompletely"));
+            assertNull(getField(spout, "reader"));
+            assertTrue(getBoolField(spout, "fileReadCompletely"));
         }
-    }
-
-    private static <T> T getField(HdfsSpout spout, String fieldName) throws NoSuchFieldException, IllegalAccessException {
-        Field readerFld = HdfsSpout.class.getDeclaredField(fieldName);
-        readerFld.setAccessible(true);
-        return (T) readerFld.get(spout);
-    }
-
-    private static boolean getBoolField(HdfsSpout spout, String fieldName) throws NoSuchFieldException, IllegalAccessException {
-        Field readerFld = HdfsSpout.class.getDeclaredField(fieldName);
-        readerFld.setAccessible(true);
-        return readerFld.getBoolean(spout);
     }
 
     @Test
@@ -428,9 +482,9 @@ public class TestHdfsSpout {
 
             // consume both files
             List<String> res = runSpout(spout, "r11");
-            Assert.assertEquals(10, res.size());
+            assertEquals(10, res.size());
 
-            Assert.assertEquals(2, listDir(archive).size());
+            assertEquals(2, listDir(archive).size());
 
             Path f1 = new Path(archive + "/file1.seq");
             Path f2 = new Path(archive + "/file2.seq");
@@ -447,22 +501,23 @@ public class TestHdfsSpout {
 
         createTextFile(file1, 6);
         createTextFile(file2, 7);
-        Assert.assertEquals(2, listDir(source).size());
+        assertEquals(2, listDir(source).size());
 
         // 2) run spout
-        try (AutoCloseableHdfsSpout closeableSpout = makeSpout(MockTextFailingReader.class.getName(), MockTextFailingReader.defaultFields)) {
+        try (
+            AutoCloseableHdfsSpout closeableSpout = makeSpout(MockTextFailingReader.class.getName(), MockTextFailingReader.defaultFields)) {
             HdfsSpout spout = closeableSpout.spout;
             Map<String, Object> conf = getCommonConfigs();
             openSpout(spout, 0, conf);
 
             List<String> res = runSpout(spout, "r11");
-            String[] expected = new String[]{"[line 0]", "[line 1]", "[line 2]", "[line 0]", "[line 1]", "[line 2]"};
-            Assert.assertArrayEquals(expected, res.toArray());
+            String[] expected = new String[]{ "[line 0]", "[line 1]", "[line 2]", "[line 0]", "[line 1]", "[line 2]" };
+            assertArrayEquals(expected, res.toArray());
 
             // 3) make sure 6 lines (3 from each file) were read in all
-            Assert.assertEquals(((MockCollector) spout.getCollector()).lines.size(), 6);
+            assertEquals(((MockCollector) spout.getCollector()).lines.size(), 6);
             ArrayList<Path> badFiles = HdfsUtils.listFilesByModificationTime(fs, badfiles, 0);
-            Assert.assertEquals(badFiles.size(), 2);
+            assertEquals(badFiles.size(), 2);
         }
     }
 
@@ -483,18 +538,18 @@ public class TestHdfsSpout {
 
             // 1) read initial lines in file, then check if lock exists
             List<String> res = runSpout(spout, "r5");
-            Assert.assertEquals(5, res.size());
+            assertEquals(5, res.size());
             List<String> lockFiles = listDir(spout.getLockDirPath());
-            Assert.assertEquals(1, lockFiles.size());
+            assertEquals(1, lockFiles.size());
 
             // 2) check log file content line count == tuples emitted + 1
             List<String> lines = readTextFile(fs, lockFiles.get(0));
-            Assert.assertEquals(lines.size(), res.size() + 1);
+            assertEquals(lines.size(), res.size() + 1);
 
             // 3) read remaining lines in file, then ensure lock is gone
             runSpout(spout, "r6");
             lockFiles = listDir(spout.getLockDirPath());
-            Assert.assertEquals(0, lockFiles.size());
+            assertEquals(0, lockFiles.size());
 
             // 4)  --- Create another input file and reverify same behavior ---
             Path file2 = new Path(source.toString() + "/file2.txt");
@@ -502,18 +557,18 @@ public class TestHdfsSpout {
 
             // 5) read initial lines in file, then check if lock exists
             res = runSpout(spout, "r5");
-            Assert.assertEquals(15, res.size());
+            assertEquals(15, res.size());
             lockFiles = listDir(spout.getLockDirPath());
-            Assert.assertEquals(1, lockFiles.size());
+            assertEquals(1, lockFiles.size());
 
             // 6) check log file content line count == tuples emitted + 1
             lines = readTextFile(fs, lockFiles.get(0));
-            Assert.assertEquals(6, lines.size());
+            assertEquals(6, lines.size());
 
             // 7) read remaining lines in file, then ensure lock is gone
             runSpout(spout, "r6");
             lockFiles = listDir(spout.getLockDirPath());
-            Assert.assertEquals(0, lockFiles.size());
+            assertEquals(0, lockFiles.size());
         }
     }
 
@@ -537,12 +592,12 @@ public class TestHdfsSpout {
             // 2) check log file contents
             String lockFile = listDir(spout.getLockDirPath()).get(0);
             List<String> lines = readTextFile(fs, lockFile);
-            Assert.assertEquals(lines.size(), 3);
+            assertEquals(lines.size(), 3);
 
             // 3) read 6th line and see if another log entry was made
             runSpout(spout, "r1");
             lines = readTextFile(fs, lockFile);
-            Assert.assertEquals(lines.size(), 4);
+            assertEquals(lines.size(), 4);
         }
     }
 
@@ -566,26 +621,14 @@ public class TestHdfsSpout {
             // 2) check log file contents
             String lockFile = listDir(spout.getLockDirPath()).get(0);
             List<String> lines = readTextFile(fs, lockFile);
-            Assert.assertEquals(lines.size(), 1);
+            assertEquals(lines.size(), 1);
             Thread.sleep(3000); // allow freq_sec to expire
 
             // 3) read another line and see if another log entry was made
             runSpout(spout, "r1");
             lines = readTextFile(fs, lockFile);
-            Assert.assertEquals(2, lines.size());
+            assertEquals(2, lines.size());
         }
-    }
-
-    private static List<String> readTextFile(FileSystem fs, String f) throws IOException {
-        Path file = new Path(f);
-        FSDataInputStream x = fs.open(file);
-        BufferedReader reader = new BufferedReader(new InputStreamReader(x));
-        String line = null;
-        ArrayList<String> result = new ArrayList<>();
-        while ((line = reader.readLine()) != null) {
-            result.add(line);
-        }
-        return result;
     }
 
     private Map<String, Object> getCommonConfigs() {
@@ -596,27 +639,13 @@ public class TestHdfsSpout {
 
     private AutoCloseableHdfsSpout makeSpout(String readerType, String[] outputFields) {
         HdfsSpout spout = new HdfsSpout().withOutputFields(outputFields)
-            .setReaderType(readerType)
-            .setHdfsUri(DFS_CLUSTER_RULE.getDfscluster().getURI().toString())
-            .setSourceDir(source.toString())
-            .setArchiveDir(archive.toString())
-            .setBadFilesDir(badfiles.toString());
+                                         .setReaderType(readerType)
+                                         .setHdfsUri(DFS_CLUSTER_EXTENSION.getDfscluster().getURI().toString())
+                                         .setSourceDir(source.toString())
+                                         .setArchiveDir(archive.toString())
+                                         .setBadFilesDir(badfiles.toString());
 
         return new AutoCloseableHdfsSpout(spout);
-    }
-
-    private static class AutoCloseableHdfsSpout implements AutoCloseable {
-
-        private final HdfsSpout spout;
-
-        public AutoCloseableHdfsSpout(HdfsSpout spout) {
-            this.spout = spout;
-        }
-
-        @Override
-        public void close() throws Exception {
-            spout.close();
-        }
     }
 
     private void openSpout(HdfsSpout spout, int spoutId, Map<String, Object> topoConf) {
@@ -656,32 +685,23 @@ public class TestHdfsSpout {
 
     private void createTextFile(Path file, int lineCount) throws IOException {
         FSDataOutputStream os = fs.create(file);
-        int size = 0;
         for (int i = 0; i < lineCount; i++) {
             os.writeBytes("line " + i + System.lineSeparator());
-            String msg = "line " + i + System.lineSeparator();
-            size += msg.getBytes().length;
         }
         os.close();
     }
 
-    private static void createSeqFile(FileSystem fs, Path file, int rowCount) throws IOException {
+    private static class AutoCloseableHdfsSpout implements AutoCloseable {
 
-        Configuration conf = new Configuration();
-        try {
-            if (fs.exists(file)) {
-                fs.delete(file, false);
-            }
+        private final HdfsSpout spout;
 
-            SequenceFile.Writer w = SequenceFile.createWriter(fs, conf, file, IntWritable.class, Text.class);
-            for (int i = 0; i < rowCount; i++) {
-                w.append(new IntWritable(i), new Text("line " + i));
-            }
-            w.close();
-            System.out.println("done");
-        } catch (IOException e) {
-            e.printStackTrace();
+        public AutoCloseableHdfsSpout(HdfsSpout spout) {
+            this.spout = spout;
+        }
 
+        @Override
+        public void close() throws Exception {
+            spout.close();
         }
     }
 
@@ -729,7 +749,7 @@ public class TestHdfsSpout {
     // throws ParseException. Effectively produces 3 lines (1,2 & 3) from each file read
     static class MockTextFailingReader extends TextFileReader {
 
-        public static final String[] defaultFields = {"line"};
+        public static final String[] defaultFields = { "line" };
         int readAttempts = 0;
 
         public MockTextFailingReader(FileSystem fs, Path file, Map<String, Object> conf) throws IOException {
@@ -753,11 +773,11 @@ public class TestHdfsSpout {
         private final int componentId;
 
         public MockTopologyContext(int componentId, Map<String, Object> topoConf) {
-            // StormTopology topology, Map<String, Object> topoConf, Map<Integer, String> taskToComponent, Map<String, List<Integer>> componentToSortedTasks, Map<String, Map<String, Fields>> componentToStreamToFields, String stormId, String codeDir, String pidDir, Integer taskId, Integer workerPort, List<Integer> workerTasks, Map<String, Object> defaultResources, Map<String, Object> userResources, Map<String, Object> executorData, Map<Integer, Map<Integer, Map<String, IMetric>>> registeredMetrics, Atom openOrPrepareWasCalled
-            super(null, topoConf, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+            super(null, topoConf, null, null, null, null, null, null, null, 0, 0, null, null, null, null, null, null, null);
             this.componentId = componentId;
         }
 
+        @Override
         public String getThisComponentId() {
             return Integer.toString(componentId);
         }

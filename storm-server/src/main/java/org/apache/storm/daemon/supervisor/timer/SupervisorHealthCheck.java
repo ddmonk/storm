@@ -19,7 +19,6 @@
 package org.apache.storm.daemon.supervisor.timer;
 
 import java.util.Map;
-
 import org.apache.storm.daemon.supervisor.Supervisor;
 import org.apache.storm.healthcheck.HealthChecker;
 import org.slf4j.Logger;
@@ -37,7 +36,7 @@ public class SupervisorHealthCheck implements Runnable {
     public void run() {
         Map<String, Object> conf = supervisor.getConf();
         LOG.info("Running supervisor healthchecks...");
-        int healthCode = HealthChecker.healthCheck(conf);
+        int healthCode = HealthChecker.healthCheck(conf, supervisor.getMetricsRegistry());
         if (healthCode != 0) {
             LOG.info("The supervisor healthchecks FAILED...");
             supervisor.shutdownAllWorkers(null, null);

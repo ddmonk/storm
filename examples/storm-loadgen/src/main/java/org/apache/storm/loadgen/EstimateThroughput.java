@@ -73,12 +73,11 @@ public class EstimateThroughput {
         List<TopologyLoadConf> regular = new ArrayList<>();
         List<TopologyLoadConf> trident = new ArrayList<>();
 
-        try (NimbusClient nc = NimbusClient.getConfiguredClient(conf)) {
+        try (NimbusClient nc = NimbusClient.Builder.withConf(conf).build()) {
             Nimbus.Iface client = nc.getClient();
             List<String> topologyNames = cmd.getArgList();
 
-            ClusterSummary clusterSummary = client.getClusterInfo();
-            for (TopologySummary topologySummary: clusterSummary.get_topologies()) {
+            for (TopologySummary topologySummary : client.getTopologySummaries()) {
                 if (topologyNames.isEmpty() || topologyNames.contains(topologySummary.get_name())) {
                     TopologyLoadConf capturedConf = CaptureLoad.captureTopology(client, topologySummary);
                     if (capturedConf.looksLikeTrident()) {
@@ -90,10 +89,10 @@ public class EstimateThroughput {
             }
 
             System.out.println("TOPOLOGY\tTOTAL MESSAGES/sec\tESTIMATED INPUT MESSAGES/sec");
-            for (TopologyLoadConf tl: regular) {
+            for (TopologyLoadConf tl : regular) {
                 System.out.println(tl.name + "\t" + tl.getAllEmittedAggregate() + "\t" + tl.getSpoutEmittedAggregate());
             }
-            for (TopologyLoadConf tl: trident) {
+            for (TopologyLoadConf tl : trident) {
                 System.out.println(tl.name + "\t" + tl.getAllEmittedAggregate() + "\t" + tl.getTridentEstimatedEmittedAggregate());
             }
             exitStatus = 0;

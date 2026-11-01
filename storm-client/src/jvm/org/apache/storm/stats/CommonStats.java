@@ -1,51 +1,43 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 
 package org.apache.storm.stats;
 
-import com.codahale.metrics.Counter;
 import java.util.Map;
 import org.apache.storm.generated.ExecutorStats;
-import org.apache.storm.metric.internal.MultiCountStatAndMetric;
-import org.apache.storm.metric.internal.MultiLatencyStatAndMetric;
+import org.apache.storm.metric.internal.MultiCountStat;
+import org.apache.storm.metric.internal.MultiLatencyStat;
 
 @SuppressWarnings("unchecked")
 public abstract class CommonStats {
-    private final MultiCountStatAndMetric emittedStats;
-    private final MultiCountStatAndMetric transferredStats;
-    private final MultiCountStatAndMetric ackedStats;
-    private final MultiCountStatAndMetric failedStats;
-
     protected final int rate;
+    private final MultiCountStat emittedStats;
+    private final MultiCountStat transferredStats;
+    private final MultiCountStat ackedStats;
+    private final MultiCountStat failedStats;
 
-    public CommonStats(int rate,int numStatBuckets) {
+    public CommonStats(int rate, int numStatBuckets) {
         this.rate = rate;
-        this.emittedStats = new MultiCountStatAndMetric(numStatBuckets);
-        this.transferredStats = new MultiCountStatAndMetric(numStatBuckets);
-        this.ackedStats = new MultiCountStatAndMetric(numStatBuckets);
-        this.failedStats = new MultiCountStatAndMetric(numStatBuckets);
+        this.emittedStats = new MultiCountStat(numStatBuckets);
+        this.transferredStats = new MultiCountStat(numStatBuckets);
+        this.ackedStats = new MultiCountStat(numStatBuckets);
+        this.failedStats = new MultiCountStat(numStatBuckets);
     }
 
-    public MultiCountStatAndMetric getFailed() {
+    public MultiCountStat getFailed() {
         return failedStats;
     }
 
-    public MultiCountStatAndMetric getAcked() {
+    public MultiCountStat getAcked() {
         return ackedStats;
     }
 
@@ -53,22 +45,20 @@ public abstract class CommonStats {
         return this.rate;
     }
 
-    public MultiCountStatAndMetric getEmitted() {
+    public MultiCountStat getEmitted() {
         return emittedStats;
     }
 
-    public MultiCountStatAndMetric getTransferred() {
+    public MultiCountStat getTransferred() {
         return transferredStats;
     }
 
-    public void emittedTuple(String stream, Counter emittedCounter) {
+    public void emittedTuple(String stream) {
         this.getEmitted().incBy(stream, this.rate);
-        emittedCounter.inc(this.rate);
     }
 
-    public void transferredTuples(String stream, int amount, Counter transferredCounter) {
+    public void transferredTuples(String stream, int amount) {
         this.getTransferred().incBy(stream, this.rate * amount);
-        transferredCounter.inc(amount);
     }
 
     public void cleanupStats() {
@@ -78,11 +68,11 @@ public abstract class CommonStats {
         failedStats.close();
     }
 
-    protected Map<String,Map<String,Long>> valueStat(MultiCountStatAndMetric metric) {
+    protected Map<String, Map<String, Long>> valueStat(MultiCountStat metric) {
         return metric.getTimeCounts();
     }
 
-    protected Map<String, Map<String, Double>> valueStat(MultiLatencyStatAndMetric metric) {
+    protected Map<String, Map<String, Double>> valueStat(MultiLatencyStat metric) {
         return metric.getTimeLatAvg();
     }
 

@@ -188,7 +188,14 @@ public BaseWindowedBolt withLateTupleStream(String streamId)
 
 ```
 This behaviour can be changed by specifying the above `streamId`. In this case late tuples are going to be emitted on the specified stream and accessible
-via the field `WindowedBoltExecutor.LATE_TUPLE_FIELD`.
+via the field `WindowedBoltExecutor.LATE_TUPLE_FIELD`. The value of this field is a `org.apache.storm.tuple.DetachedTuple`, a serializable copy of the
+original tuple (source component, task, stream, fields and values) detached from the topology context, so that the late tuple stream can also be
+consumed by bolts running in different workers.
+
+> **Behavior change:** previously the value in `LATE_TUPLE_FIELD` was the original input tuple (`TupleImpl`), which could not be serialized and therefore
+> only worked when the late tuple stream was consumed in the same worker. It is now a `DetachedTuple`. Read it through the `Tuple` interface as before;
+> however the detached tuple is unanchored and carries no topology context, so `getContext()` throws `UnsupportedOperationException` and the value can no
+> longer be cast to `TupleImpl`.
 
 
 ### Watermarks
@@ -251,7 +258,7 @@ e10 is not evaluated since the tuple ts `8:00:39` is beyond the watermark time `
 The window calculation considers the time gaps and computes the windows based on the tuple timestamp.
 
 ## Guarantees
-The windowing functionality in storm core currently provides at-least once guarentee. The values emitted from the bolts
+The windowing functionality in storm core currently provides at-least once guarantee. The values emitted from the bolts
 `execute(TupleWindow inputWindow)` method are automatically anchored to all the tuples in the inputWindow. The downstream
 bolts are expected to ack the received tuple (i.e the tuple emitted from the windowed bolt) to complete the tuple tree. 
 If not the tuples will be replayed and the windowing computation will be re-evaluated. 
@@ -330,7 +337,7 @@ conf.put(Config.TOPOLOGY_STATE_PROVIDER, "org.apache.storm.redis.state.RedisKeyV
 
 ```
 Currently storm supports Redis and HBase as state backends and uses the underlying state-checkpointing
-framework for saving the window state. For more details on state checkpointing see [State-checkpointing.md](State-checkpointing.md)
+framework for saving the window state. For more details on state checkpointing see [State-checkpointing](State-checkpointing.html).
 
 Here is an example of a persistent windowed bolt that uses the window checkpointing to save its state. The `initState`
 is invoked with the last saved state (user state) at initialization time. The execute method is invoked based on the configured

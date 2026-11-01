@@ -18,19 +18,44 @@
 
 package org.apache.storm.utils;
 
-import java.util.Map;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import org.apache.storm.Config;
 
 public class ReflectionUtils {
+    /**
+     * The scheduler strategies shipped with Storm. They are used when {@link
+     * Config#NIMBUS_SCHEDULER_STRATEGY_CLASS_WHITELIST} is not
+     * set at all, so that an unset config does not mean that any class on the nimbus classpath may
+     * be instantiated. The names are
+     * spelled out because the strategies live in storm-server. Keep this list in sync with
+     * conf/defaults.yaml.
+     */
+    public static final List<String> DEFAULT_SCHEDULER_STRATEGIES = Collections
+            .unmodifiableList(Arrays.asList(
+            "org.apache.storm.scheduler.resource.strategies.scheduling.DefaultResourceAwareStrateg"
+            + "y",
+            "org.apache.storm.scheduler.resource.strategies.scheduling.DefaultResourceAwareStrateg"
+            + "yOld",
+            "org.apache.storm.scheduler.resource.strategies.scheduling.GenericResourceAwareStrateg"
+            + "y",
+            "org.apache.storm.scheduler.resource.strategies.scheduling.GenericResourceAwareStrateg"
+            + "yOld",
+            "org.apache.storm.scheduler.resource.strategies.scheduling.RoundRobinResourceAwareStra"
+            + "tegy",
+            "org.apache.storm.scheduler.resource.strategies.scheduling.ConstraintSolverStrategy"));
+
     // A singleton instance allows us to mock delegated static methods in our
     // tests by subclassing.
     private static ReflectionUtils _instance = new ReflectionUtils();
 
     /**
-     * Provide an instance of this class for delegates to use.  To mock out
-     * delegated methods, provide an instance of a subclass that overrides the
-     * implementation of the delegated method.
+     * Provide an instance of this class for delegates to use. To mock out delegated methods,
+     * provide an instance of a subclass that
+     * overrides the implementation of the delegated method.
+     *
      * @param u a Utils instance
      * @return the previously set instance
      */
@@ -43,7 +68,7 @@ public class ReflectionUtils {
     @SuppressWarnings("unchecked")
     public static <T> T newInstance(String klass) {
         try {
-            return newInstance((Class<T>)Class.forName(klass));
+            return newInstance((Class<T>) Class.forName(klass));
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -56,7 +81,7 @@ public class ReflectionUtils {
     @SuppressWarnings("unchecked")
     public static <T> T newInstance(String klass, Map<String, Object> conf) {
         try {
-            return newInstance((Class<T>)Class.forName(klass), conf);
+            return newInstance((Class<T>) Class.forName(klass), conf);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -75,11 +100,14 @@ public class ReflectionUtils {
     }
 
     public static <T> T newSchedulerStrategyInstance(String klass, Map<String, Object> conf) {
-        List<String> allowedSchedulerStrategies = (List<String>) conf.get(Config.NIMBUS_SCHEDULER_STRATEGY_CLASS_WHITELIST);
-        if(allowedSchedulerStrategies == null || allowedSchedulerStrategies.contains(klass)) {
-            return newInstance(klass);
+        List<String> allowedSchedulerStrategies = (List<String>) conf
+                .get(Config.NIMBUS_SCHEDULER_STRATEGY_CLASS_WHITELIST);
+        if (allowedSchedulerStrategies == null) {
+            allowedSchedulerStrategies = DEFAULT_SCHEDULER_STRATEGIES;
         }
-        else {
+        if (allowedSchedulerStrategies.contains(klass)) {
+            return newInstance(klass);
+        } else {
             throw new DisallowedStrategyException(klass, allowedSchedulerStrategies);
         }
     }

@@ -31,34 +31,50 @@ function list_storm_processes() {
 }
 
 list_storm_processes || true
-# increasing swap space so we can run lots of workers
-sudo dd if=/dev/zero of=/swapfile.img bs=4096 count=1M
-sudo mkswap /swapfile.img
-sudo swapon /swapfile.img
+if [ "$(uname -m)" != aarch64 ]; then
+  # increasing swap space so we can run lots of workers
+  sudo dd if=/dev/zero of=/swapfile.img bs=4096 count=1M
+  sudo mkswap /swapfile.img
+  sudo swapon /swapfile.img
+fi
 
-if [[ "${USER}" == "ubuntu" ]]; then # install oracle jdk8
+
+if [[ "${USER}" == "vagrant" ]]; then # install oracle jdk8 or openjdk11
     sudo apt-get update
     sudo apt-get -y install python-software-properties
-    sudo apt-add-repository -y ppa:webupd8team/java
-    sudo apt-get update
-    echo "oracle-java8-installer shared/accepted-oracle-license-v1-1 select true" | sudo debconf-set-selections
-    sudo apt-get install -y oracle-java8-installer
+    if [[ "${JDK_VERSION}" -ne "11" ]]
+    then
+      sudo apt-add-repository -y ppa:webupd8team/java
+      sudo apt-get update
+      echo "oracle-java8-installer shared/accepted-oracle-license-v1-1 select true" | sudo debconf-set-selections
+      sudo apt-get install -y oracle-java8-installer
+    else 
+      sudo add-apt-repository ppa:openjdk-r/ppa
+      sudo apt-get update
+      sudo apt-get install -y openjdk-11-jdk
+    fi
     sudo apt-get -y install maven
     sudo apt-get install unzip
     java -version
     mvn --version
     export MAVEN_OPTS="-Xmx3000m"
-    zookeeper_version=3.4.8*
 else
-    ( while true; do echo "heartbeat"; sleep 300; done ) & #heartbeat needed by travis ci
-    if [[ "${USER}" == "travis" ]]; then
+    if [[ "${USER}" == "github" ]]; then
+        # The distribution takes public/ from storm-webapp/target/classes/WEB-INF, which this job
+        # does not build; it only has the storm-webapp jar from the build job.
+        webapp_jar=$(find ~/.m2/repository/org/apache/storm/storm-webapp -name 'storm-webapp-*.jar' \
+            -not -name '*-tests.jar' -not -name '*-sources.jar' -not -name '*-javadoc.jar' | head -1)
+        [[ -n "${webapp_jar}" ]] || die "storm-webapp jar not found in the local Maven repository"
+        mkdir -p "${STORM_SRC_DIR}/storm-webapp/target/classes"
+        unzip -q -o "${webapp_jar}" 'WEB-INF/*' -d "${STORM_SRC_DIR}/storm-webapp/target/classes"
         ( cd "${STORM_SRC_DIR}/storm-dist/binary" && mvn clean package -Dgpg.skip=true )
     fi
-    (( $(find "${STORM_SRC_DIR}/storm-dist/binary" -iname 'apache-storm*.zip' | wc -l) == 1 )) || die "expected exactly one zip file, did you run: cd ${STORM_SRC_DIR}/storm-dist/binary && mvn clean package -Dgpg.skip=true"
-    zookeeper_version=3.4.5*
+    # The binary build also produces the lean "storm-lite" distribution; the integration
+    # tests run against the full one, so ignore apache-storm-*-lite.zip here.
+    (( $(find "${STORM_SRC_DIR}/storm-dist/binary" -iname 'apache-storm*.zip' -not -iname '*-lite.zip' | wc -l) == 1 )) || die "expected exactly one zip file, did you run: cd ${STORM_SRC_DIR}/storm-dist/binary && mvn clean package -Dgpg.skip=true"
 fi
 
-storm_binary_zip=$(find "${STORM_SRC_DIR}/storm-dist" -iname '*.zip')
+storm_binary_zip=$(find "${STORM_SRC_DIR}/storm-dist" -iname 'apache-storm*.zip' -not -iname '*-lite.zip')
 storm_binary_name=$(basename "${storm_binary_zip}")
 export STORM_VERSION=$(grep -oPe '\d.*(?=.zip)' <<<"${storm_binary_name}")
 echo "Using storm version:" ${STORM_VERSION}
@@ -66,24 +82,30 @@ echo "Using storm version:" ${STORM_VERSION}
 # setup storm cluster
 list_storm_processes || true
 sudo bash "${SCRIPT_DIR}/config/common.sh"
-sudo bash "${SCRIPT_DIR}/config/install-zookeeper.sh" "$zookeeper_version"
 sudo bash "${SCRIPT_DIR}/config/install-storm.sh" "$storm_binary_zip"
+# storm.yaml points ZooKeeper, Nimbus and DRPC at node1; make it resolve when the host does not already
+grep -qw node1 /etc/hosts || echo "127.0.0.1 node1" | sudo tee -a /etc/hosts
 export JAVA_HOME="${JAVA_HOME}"
 env
 function start_storm_process() {
     echo starting: storm $1
     sudo su storm -c "export JAVA_HOME=\"${JAVA_HOME}\" && cd /usr/share/storm && storm $1" &
 }
+start_storm_process dev-zookeeper
 start_storm_process nimbus
 start_storm_process ui
 start_storm_process supervisor
 start_storm_process logviewer
 #start_storm_process drpc
 pushd "${SCRIPT_DIR}"
-mvn clean package  -DskipTests -Dstorm.version=${STORM_VERSION}
+mvn clean package  -DskipTests
 for i in {1..20} ; do
     list_storm_processes && break
     sleep 6
 done
 list_storm_processes
 mvn test -DfailIfNoTests=false -DskipTests=false -Dstorm.version=${STORM_VERSION} -Dui.url=http://localhost:8744
+
+# Kill all storm processes after tests running, otherwise the Travis CI(ARM) will still wait and then fail by
+# timeout error even though all the tests passed
+sudo pkill -9 -u storm

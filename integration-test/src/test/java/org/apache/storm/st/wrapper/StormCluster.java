@@ -19,19 +19,18 @@ package org.apache.storm.st.wrapper;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.Collections2;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.storm.generated.ClusterSummary;
 import org.apache.storm.generated.KillOptions;
 import org.apache.storm.generated.Nimbus;
 import org.apache.storm.generated.TopologyInfo;
 import org.apache.storm.generated.TopologySummary;
 import org.apache.storm.st.utils.AssertUtil;
-import org.apache.commons.lang.exception.ExceptionUtils;
-import org.apache.thrift.TException;
+import org.apache.storm.thrift.TException;
 import org.apache.storm.utils.NimbusClient;
 import org.apache.storm.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testng.Assert;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -40,13 +39,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 public class StormCluster {
-    private static Logger log = LoggerFactory.getLogger(StormCluster.class);
+    private static final Logger log = LoggerFactory.getLogger(StormCluster.class);
     private final Nimbus.Iface client;
 
     public StormCluster() {
         Map<String, Object> conf = getConfig();
-        this.client = NimbusClient.getConfiguredClient(conf).getClient();
+        this.client = NimbusClient.Builder.withConf(conf).build().getClient();
     }
 
     public static Map<String, Object> getConfig() {
@@ -94,7 +95,7 @@ public class StormCluster {
                 log.info("Topology killed: " + topologyName);
                 return;
             } catch (TException e) {
-                log.warn("Couldn't kill topology: " + topologyName + ", going to retry soon. Exception: " + ExceptionUtils.getFullStackTrace(e));
+                log.warn("Couldn't kill topology: " + topologyName + ", going to retry soon. Exception: " + ExceptionUtils.getStackTrace(e));
                 Thread.sleep(TimeUnit.SECONDS.toMillis(2));
             }
         }
@@ -104,7 +105,7 @@ public class StormCluster {
     public TopologySummary getOneActive() throws TException {
         List<TopologySummary> topoSummaries = getActive();
         AssertUtil.nonEmpty(topoSummaries, "Expecting one active topology.");
-        Assert.assertEquals(topoSummaries.size(), 1, "Expected one topology to be running, found: " + topoSummaries);
+        assertEquals(topoSummaries.size(), 1, "Expected one topology to be running, found: " + topoSummaries);
         return topoSummaries.get(0);
     }
 

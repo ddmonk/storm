@@ -15,24 +15,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.storm.dependency;
 
-import com.google.common.collect.Lists;
-import com.google.common.io.Files;
-import org.apache.storm.blobstore.AtomicOutputStream;
-import org.apache.storm.blobstore.BlobStoreAclHandler;
-import org.apache.storm.blobstore.ClientBlobStore;
-import org.apache.storm.generated.AccessControl;
-import org.apache.storm.generated.AccessControlType;
-import org.apache.storm.generated.KeyNotFoundException;
-import org.apache.storm.generated.ReadableBlobMeta;
-import org.apache.storm.generated.SettableBlobMeta;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.ArgumentCaptor;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -43,25 +44,29 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.Assert.*;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.contains;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import org.apache.storm.blobstore.AtomicOutputStream;
+import org.apache.storm.blobstore.BlobStoreAclHandler;
+import org.apache.storm.blobstore.ClientBlobStore;
+import org.apache.storm.generated.AccessControl;
+import org.apache.storm.generated.AccessControlType;
+import org.apache.storm.generated.KeyAlreadyExistsException;
+import org.apache.storm.generated.KeyNotFoundException;
+import org.apache.storm.generated.ReadableBlobMeta;
+import org.apache.storm.generated.SettableBlobMeta;
+import org.apache.storm.shade.com.google.common.collect.Lists;
+import org.apache.storm.shade.com.google.common.io.Files;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.stubbing.Answer;
 
 public class DependencyUploaderTest {
 
     private DependencyUploader sut;
     private ClientBlobStore mockBlobStore;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         sut = new DependencyUploader();
         mockBlobStore = mock(ClientBlobStore.class);
@@ -69,43 +74,45 @@ public class DependencyUploaderTest {
         doNothing().when(mockBlobStore).shutdown();
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         sut.shutdown();
     }
 
-    @Test(expected = FileNotAvailableException.class)
-    public void uploadFilesWhichOneOfThemIsNotFoundInLocal() throws Exception {
-        File mockFile = mock(File.class);
-        when(mockFile.isFile()).thenReturn(true);
-        when(mockFile.exists()).thenReturn(true);
+    @Test
+    public void uploadFilesWhichOneOfThemIsNotFoundInLocal() {
+        assertThrows(FileNotAvailableException.class, () -> {
+            File mockFile = mock(File.class);
+            when(mockFile.isFile()).thenReturn(true);
+            when(mockFile.exists()).thenReturn(true);
 
-        File mockFile2 = mock(File.class);
-        when(mockFile.isFile()).thenReturn(true);
-        when(mockFile.exists()).thenReturn(false);
+            File mockFile2 = mock(File.class);
+            when(mockFile.isFile()).thenReturn(true);
+            when(mockFile.exists()).thenReturn(false);
 
-        List<File> dependencies = new ArrayList<>();
-        dependencies.add(mockFile);
-        dependencies.add(mockFile2);
+            List<File> dependencies = new ArrayList<>();
+            dependencies.add(mockFile);
+            dependencies.add(mockFile2);
 
-        sut.uploadFiles(dependencies, false);
-        fail("Should throw FileNotAvailableException");
+            sut.uploadFiles(dependencies, false);
+        });
     }
 
-    @Test(expected = FileNotAvailableException.class)
-    public void uploadFilesWhichOneOfThemIsNotFile() throws Exception {
-        File mockFile = mock(File.class);
-        when(mockFile.isFile()).thenReturn(true);
-        when(mockFile.exists()).thenReturn(true);
+    @Test
+    public void uploadFilesWhichOneOfThemIsNotFile() {
+        assertThrows(FileNotAvailableException.class, () -> {
+            File mockFile = mock(File.class);
+            when(mockFile.isFile()).thenReturn(true);
+            when(mockFile.exists()).thenReturn(true);
 
-        File mockFile2 = mock(File.class);
-        when(mockFile.isFile()).thenReturn(false);
-        when(mockFile.exists()).thenReturn(true);
+            File mockFile2 = mock(File.class);
+            when(mockFile.isFile()).thenReturn(false);
+            when(mockFile.exists()).thenReturn(true);
 
-        List<File> dependencies = Lists.newArrayList(mockFile, mockFile2);
+            List<File> dependencies = Lists.newArrayList(mockFile, mockFile2);
 
-        sut.uploadFiles(dependencies, false);
-        fail("Should throw FileNotAvailableException");
+            sut.uploadFiles(dependencies, false);
+        });
     }
 
     @Test
@@ -120,19 +127,22 @@ public class DependencyUploaderTest {
         when(mockFile2.toPath()).thenThrow(new RuntimeException("just for test!"));
 
         String mockFileFileNameWithoutExtension = Files.getNameWithoutExtension(mockFile.getName());
-        String mockFile2FileNameWithoutExtension = Files.getNameWithoutExtension(mockFile2.getName());
+        String mockFile2FileNameWithoutExtension = Files.getNameWithoutExtension(mockFile2
+                .getName());
 
         // we skip uploading first one since we want to test rollback, not upload
-        when(mockBlobStore.getBlobMeta(contains(mockFileFileNameWithoutExtension))).thenReturn(new ReadableBlobMeta());
+        when(mockBlobStore.getBlobMeta(contains(mockFileFileNameWithoutExtension)))
+                .thenReturn(new ReadableBlobMeta());
         // we try uploading second one and it should be failed throwing RuntimeException
-        when(mockBlobStore.getBlobMeta(contains(mockFile2FileNameWithoutExtension))).thenThrow(new KeyNotFoundException());
+        when(mockBlobStore.getBlobMeta(contains(mockFile2FileNameWithoutExtension)))
+                .thenThrow(new KeyNotFoundException());
 
         List<File> dependencies = Lists.newArrayList(mockFile, mockFile2);
 
         try {
             sut.uploadFiles(dependencies, true);
             fail("Should pass RuntimeException");
-        } catch (RuntimeException e) {
+        } catch (RuntimeException ignore) {
             // intended behavior
         }
 
@@ -149,20 +159,20 @@ public class DependencyUploaderTest {
         doNothing().when(mockOutputStream).cancel();
 
         final AtomicInteger counter = new AtomicInteger();
-        final Answer incrementCounter = new Answer() {
-            public Object answer(InvocationOnMock invocation) throws Throwable {
-                counter.addAndGet(1);
-                return null;
-            }
+        final Answer<Object> incrementCounter = invocation -> {
+            counter.addAndGet(1);
+            return null;
         };
 
         doAnswer(incrementCounter).when(mockOutputStream).write(anyInt());
         doAnswer(incrementCounter).when(mockOutputStream).write(any(byte[].class));
-        doAnswer(incrementCounter).when(mockOutputStream).write(any(byte[].class), anyInt(), anyInt());
+        doAnswer(incrementCounter).when(mockOutputStream).write(any(byte[].class), anyInt(),
+                anyInt());
         doNothing().when(mockOutputStream).close();
 
         when(mockBlobStore.getBlobMeta(anyString())).thenThrow(new KeyNotFoundException());
-        when(mockBlobStore.createBlob(anyString(), any(SettableBlobMeta.class))).thenReturn(mockOutputStream);
+        when(mockBlobStore.createBlob(anyString(), any(SettableBlobMeta.class)))
+                .thenReturn(mockOutputStream);
 
         File mockFile = createTemporaryDummyFile();
         String mockFileFileNameWithoutExtension = Files.getNameWithoutExtension(mockFile.getName());
@@ -175,61 +185,65 @@ public class DependencyUploaderTest {
         assertTrue(counter.get() > 0);
         verify(mockOutputStream).close();
 
-        ArgumentCaptor<SettableBlobMeta> blobMetaArgumentCaptor = ArgumentCaptor.forClass(SettableBlobMeta.class);
+        ArgumentCaptor<SettableBlobMeta> blobMetaArgumentCaptor = ArgumentCaptor
+                .forClass(SettableBlobMeta.class);
         verify(mockBlobStore).createBlob(anyString(), blobMetaArgumentCaptor.capture());
 
         SettableBlobMeta actualBlobMeta = blobMetaArgumentCaptor.getValue();
         List<AccessControl> actualAcls = actualBlobMeta.get_acl();
         assertTrue(actualAcls.contains(new AccessControl(AccessControlType.USER,
-                BlobStoreAclHandler.READ | BlobStoreAclHandler.WRITE | BlobStoreAclHandler.ADMIN)));
+                BlobStoreAclHandler.READ | BlobStoreAclHandler.WRITE
+                        | BlobStoreAclHandler.ADMIN)));
         assertTrue(actualAcls.contains(new AccessControl(AccessControlType.OTHER,
                 BlobStoreAclHandler.READ)));
     }
 
-    @Test(expected = FileNotAvailableException.class)
-    public void uploadArtifactsWhichOneOfThemIsNotFoundInLocal() throws Exception {
-        File mockFile = mock(File.class);
-        when(mockFile.isFile()).thenReturn(true);
-        when(mockFile.exists()).thenReturn(true);
+    @Test
+    public void uploadArtifactsWhichOneOfThemIsNotFoundInLocal() {
+        assertThrows(FileNotAvailableException.class, () -> {
+            File mockFile = mock(File.class);
+            when(mockFile.isFile()).thenReturn(true);
+            when(mockFile.exists()).thenReturn(true);
 
-        File mockFile2 = mock(File.class);
-        when(mockFile.isFile()).thenReturn(true);
-        when(mockFile.exists()).thenReturn(false);
+            File mockFile2 = mock(File.class);
+            when(mockFile.isFile()).thenReturn(true);
+            when(mockFile.exists()).thenReturn(false);
 
-        Map<String, File> artifacts = new LinkedHashMap<>();
-        artifacts.put("group:artifact:1.0.0", mockFile);
-        artifacts.put("group:artifact:1.1.0", mockFile2);
+            Map<String, File> artifacts = new LinkedHashMap<>();
+            artifacts.put("group:artifact:1.0.0", mockFile);
+            artifacts.put("group:artifact:1.1.0", mockFile2);
 
-        sut.uploadArtifacts(artifacts);
-        fail("Should throw FileNotAvailableException");
+            sut.uploadArtifacts(artifacts);
+        });
     }
 
-    @Test(expected = FileNotAvailableException.class)
-    public void uploadArtifactsWhichOneOfThemIsNotFile() throws Exception {
-        File mockFile = mock(File.class);
-        when(mockFile.isFile()).thenReturn(true);
-        when(mockFile.exists()).thenReturn(true);
+    @Test
+    public void uploadArtifactsWhichOneOfThemIsNotFile() {
+        assertThrows(FileNotAvailableException.class, () -> {
+            File mockFile = mock(File.class);
+            when(mockFile.isFile()).thenReturn(true);
+            when(mockFile.exists()).thenReturn(true);
 
-        File mockFile2 = mock(File.class);
-        when(mockFile.isFile()).thenReturn(false);
-        when(mockFile.exists()).thenReturn(true);
+            File mockFile2 = mock(File.class);
+            when(mockFile.isFile()).thenReturn(false);
+            when(mockFile.exists()).thenReturn(true);
 
-        Map<String, File> artifacts = new LinkedHashMap<>();
-        artifacts.put("group:artifact:1.0.0", mockFile);
-        artifacts.put("group:artifact:1.1.0", mockFile2);
+            Map<String, File> artifacts = new LinkedHashMap<>();
+            artifacts.put("group:artifact:1.0.0", mockFile);
+            artifacts.put("group:artifact:1.1.0", mockFile2);
 
-        sut.uploadArtifacts(artifacts);
-        fail("Should throw FileNotAvailableException");
+            sut.uploadArtifacts(artifacts);
+        });
     }
 
     @Test
     public void uploadArtifactsWhichOneOfThemIsFailedToBeUploaded() throws Exception {
         String artifact = "group:artifact:1.0.0";
-        String expectedBlobKeyForArtifact = "group-artifact-1.0.0.jar";
+        String expectedBlobKeyForArtifact = "group-artifact-1.0.0";
         File mockFile = createTemporaryDummyFile();
 
         String artifact2 = "group:artifact2:2.0.0";
-        String expectedBlobKeyForArtifact2 = "group-artifact2-2.0.0.jar";
+        String expectedBlobKeyForArtifact2 = "group-artifact2-2.0.0";
         File mockFile2 = mock(File.class);
         when(mockFile2.getName()).thenReturn("dummy.jar");
         when(mockFile2.isFile()).thenReturn(true);
@@ -238,9 +252,11 @@ public class DependencyUploaderTest {
         when(mockFile2.toPath()).thenThrow(new RuntimeException("just for test!"));
 
         // we skip uploading first one since we don't test upload for now
-        when(mockBlobStore.getBlobMeta(contains(expectedBlobKeyForArtifact))).thenReturn(new ReadableBlobMeta());
+        when(mockBlobStore.getBlobMeta(contains(expectedBlobKeyForArtifact)))
+                .thenReturn(new ReadableBlobMeta());
         // we try uploading second one and it should be failed throwing RuntimeException
-        when(mockBlobStore.getBlobMeta(contains(expectedBlobKeyForArtifact2))).thenThrow(new KeyNotFoundException());
+        when(mockBlobStore.getBlobMeta(contains(expectedBlobKeyForArtifact2)))
+                .thenThrow(new KeyNotFoundException());
 
         Map<String, File> artifacts = new LinkedHashMap<>();
         artifacts.put(artifact, mockFile);
@@ -256,8 +272,11 @@ public class DependencyUploaderTest {
         verify(mockBlobStore).getBlobMeta(contains(expectedBlobKeyForArtifact));
         verify(mockBlobStore).getBlobMeta(contains(expectedBlobKeyForArtifact2));
 
-        // never rollback
-        verify(mockBlobStore, never()).deleteBlob(contains(expectedBlobKeyForArtifact));
+        // the artifacts uploaded before the failure are rolled back: their keys are unique to this
+        // upload,
+        // so nothing else can be referring to them and leaving them behind leaks blob store space
+        // forever
+        verify(mockBlobStore).deleteBlob(contains(expectedBlobKeyForArtifact));
         verify(mockBlobStore, never()).deleteBlob(contains(expectedBlobKeyForArtifact2));
     }
 
@@ -267,23 +286,23 @@ public class DependencyUploaderTest {
         doNothing().when(mockOutputStream).cancel();
 
         final AtomicInteger counter = new AtomicInteger();
-        final Answer incrementCounter = new Answer() {
-            public Object answer(InvocationOnMock invocation) throws Throwable {
-                counter.addAndGet(1);
-                return null;
-            }
+        final Answer<Object> incrementCounter = invocation -> {
+            counter.addAndGet(1);
+            return null;
         };
 
         doAnswer(incrementCounter).when(mockOutputStream).write(anyInt());
         doAnswer(incrementCounter).when(mockOutputStream).write(any(byte[].class));
-        doAnswer(incrementCounter).when(mockOutputStream).write(any(byte[].class), anyInt(), anyInt());
+        doAnswer(incrementCounter).when(mockOutputStream).write(any(byte[].class), anyInt(),
+                anyInt());
         doNothing().when(mockOutputStream).close();
 
         when(mockBlobStore.getBlobMeta(anyString())).thenThrow(new KeyNotFoundException());
-        when(mockBlobStore.createBlob(anyString(), any(SettableBlobMeta.class))).thenReturn(mockOutputStream);
+        when(mockBlobStore.createBlob(anyString(), any(SettableBlobMeta.class)))
+                .thenReturn(mockOutputStream);
 
         String artifact = "group:artifact:1.0.0";
-        String expectedBlobKeyForArtifact = "group-artifact-1.0.0.jar";
+        String expectedBlobKeyForArtifact = "group-artifact-1.0.0";
         File mockFile = createTemporaryDummyFile();
 
         Map<String, File> artifacts = new LinkedHashMap<>();
@@ -297,8 +316,46 @@ public class DependencyUploaderTest {
         verify(mockOutputStream).close();
     }
 
+    @Test
+    public void uploadArtifactsAssignsUniqueKeyPerUpload() throws Exception {
+        AtomicOutputStream mockOutputStream = mock(AtomicOutputStream.class);
+        doNothing().when(mockOutputStream).close();
+
+        when(mockBlobStore.getBlobMeta(anyString())).thenThrow(new KeyNotFoundException());
+        when(mockBlobStore.createBlob(anyString(), any(SettableBlobMeta.class)))
+                .thenReturn(mockOutputStream);
+
+        String artifact = "group:artifact:1.0.0";
+        Map<String, File> artifacts = new LinkedHashMap<>();
+        artifacts.put(artifact, createTemporaryDummyFile());
+
+        List<String> firstKeys = sut.uploadArtifacts(artifacts);
+        List<String> secondKeys = sut.uploadArtifacts(artifacts);
+
+        assertEquals(1, firstKeys.size());
+        assertEquals(1, secondKeys.size());
+        // the key must not be derived from the artifact coordinate alone, otherwise a blob left
+        // behind
+        // by another submission is picked up instead of the artifact we just resolved
+        assertNotEquals("dep-group-artifact-1.0.0.jar", firstKeys.get(0));
+        assertNotEquals(firstKeys.get(0), secondKeys.get(0));
+        verify(mockBlobStore, times(2)).createBlob(anyString(), any(SettableBlobMeta.class));
+    }
+
+    @Test
+    public void uploadArtifactsFailsWhenKeyAlreadyExists() throws Exception {
+        when(mockBlobStore.getBlobMeta(anyString())).thenThrow(new KeyNotFoundException());
+        when(mockBlobStore.createBlob(anyString(), any(SettableBlobMeta.class)))
+                .thenThrow(new KeyAlreadyExistsException());
+
+        Map<String, File> artifacts = new LinkedHashMap<>();
+        artifacts.put("group:artifact:1.0.0", createTemporaryDummyFile());
+
+        assertThrows(RuntimeException.class, () -> sut.uploadArtifacts(artifacts));
+    }
+
     private File createTemporaryDummyFile() throws IOException {
-        File tempFile = File.createTempFile("tempfile", ".tmp");
+        File tempFile = java.nio.file.Files.createTempFile("tempfile", ".tmp").toFile();
 
         BufferedWriter bw = new BufferedWriter(new FileWriter(tempFile));
         bw.write("This is the temporary file content");
@@ -306,5 +363,4 @@ public class DependencyUploaderTest {
 
         return tempFile;
     }
-
 }

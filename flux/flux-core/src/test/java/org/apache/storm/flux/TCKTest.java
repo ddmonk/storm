@@ -17,22 +17,24 @@
  */
 package org.apache.storm.flux;
 
-import static org.hamcrest.CoreMatchers.is;
-
 import org.apache.storm.Config;
 import org.apache.storm.generated.StormTopology;
 import org.apache.storm.flux.model.ExecutionContext;
 import org.apache.storm.flux.model.TopologyDef;
 import org.apache.storm.flux.parser.FluxParser;
 import org.apache.storm.flux.test.TestBolt;
-import org.junit.Test;
-
-import static org.junit.Assert.*;
-
+import org.apache.storm.shade.net.minidev.json.JSONValue;
+import org.apache.storm.utils.Utils;
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Properties;
 
 public class TCKTest {
+    
     @Test
     public void testTCK() throws Exception {
         TopologyDef topologyDef = FluxParser.parseResource("/configs/tck.yaml", false, true, null, false);
@@ -53,14 +55,14 @@ public class TCKTest {
         topology.validate();
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testBadShellComponents() throws Exception {
         TopologyDef topologyDef = FluxParser.parseResource("/configs/bad_shell_test.yaml", false, true, null, false);
         Config conf = FluxBuilder.buildConfig(topologyDef);
         ExecutionContext context = new ExecutionContext(topologyDef, conf);
-        StormTopology topology = FluxBuilder.buildTopology(context);
-        assertNotNull(topology);
-        topology.validate();
+
+        IllegalArgumentException expectedException = assertThrows(IllegalArgumentException.class, () -> FluxBuilder.buildTopology(context));
+        assertTrue(expectedException.getMessage().contains("Unable to find configuration method"));
     }
 
     @Test
@@ -104,25 +106,105 @@ public class TCKTest {
         topology.validate();
     }
 
-
     @Test
-    public void testHbase() throws Exception {
-        TopologyDef topologyDef = FluxParser.parseResource("/configs/simple_hbase.yaml", false, true, null, false);
+    public void testComponentConfig() throws Exception {
+        TopologyDef topologyDef = FluxParser.parseResource("/configs/component-config-test.yaml",
+                false, true, null, false);
         Config conf = FluxBuilder.buildConfig(topologyDef);
         ExecutionContext context = new ExecutionContext(topologyDef, conf);
         StormTopology topology = FluxBuilder.buildTopology(context);
         assertNotNull(topology);
         topology.validate();
+
+        Map<String, Object> spoutConf = (Map<String, Object>) JSONValue.parse(
+                topology.get_spouts().get("spout-1").get_common().get_json_conf());
+        assertEquals(Boolean.TRUE, spoutConf.get(Config.TOPOLOGY_TUPLE_COMPRESSION_ENABLE));
+
+        Map<String, Object> boltConf = (Map<String, Object>) JSONValue.parse(
+                topology.get_bolts().get("bolt-1").get_common().get_json_conf());
+        assertEquals(Boolean.FALSE, boltConf.get(Config.TOPOLOGY_TUPLE_COMPRESSION_ENABLE));
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
+    public void testComponentConfigOverridesTopologyConfig() throws Exception {
+        TopologyDef topologyDef = FluxParser.parseResource("/configs/component-config-override-test.yaml",
+                false, true, null, false);
+        Config conf = FluxBuilder.buildConfig(topologyDef);
+        ExecutionContext context = new ExecutionContext(topologyDef, conf);
+        StormTopology topology = FluxBuilder.buildTopology(context);
+        assertNotNull(topology);
+        topology.validate();
+
+        // the topology-level config carries the original value
+        assertEquals(Boolean.TRUE, conf.get(Config.TOPOLOGY_TUPLE_COMPRESSION_ENABLE));
+
+        // evaluate the effective config the way a worker does: topology config overlaid with the
+        // per-component config
+        Map<String, Object> boltComponentConf = (Map<String, Object>) JSONValue.parse(
+                topology.get_bolts().get("bolt-1").get_common().get_json_conf());
+        Map<String, Object> effectiveBoltConf = Utils.merge(conf, boltComponentConf);
+        assertEquals(Boolean.FALSE, effectiveBoltConf.get(Config.TOPOLOGY_TUPLE_COMPRESSION_ENABLE));
+
+        Map<String, Object> spoutComponentConf = (Map<String, Object>) JSONValue.parse(
+                topology.get_spouts().get("spout-1").get_common().get_json_conf());
+        Map<String, Object> effectiveSpoutConf = Utils.merge(conf, spoutComponentConf);
+        assertEquals(Boolean.TRUE, effectiveSpoutConf.get(Config.TOPOLOGY_TUPLE_COMPRESSION_ENABLE));
+    }
+
+    @Test
+    public void testComponentConfigWithInvalidValue() throws Exception {
+        TopologyDef topologyDef = FluxParser.parseResource("/configs/component-config-invalid-test.yaml", false,
+                true, null, false);
+        Config conf = FluxBuilder.buildConfig(topologyDef);
+        ExecutionContext context = new ExecutionContext(topologyDef, conf);
+
+        IllegalArgumentException expectedException = assertThrows(IllegalArgumentException.class,
+                () -> FluxBuilder.buildTopology(context));
+        assertTrue(expectedException.getMessage().contains("must be of type"));
+        assertTrue(expectedException.getMessage().contains("Boolean"));
+    }
+
+    @Test
+    public void testComponentConfigWithNotRegisteredKey() throws Exception {
+        TopologyDef topologyDef = FluxParser.parseResource("/configs/component-config-invalid-key-test.yaml", false,
+                true, null, false);
+        Config conf = FluxBuilder.buildConfig(topologyDef);
+        ExecutionContext context = new ExecutionContext(topologyDef, conf);
+
+        StormTopology topology = FluxBuilder.buildTopology(context);
+        Map<String, Object> boltConf = (Map<String, Object>) JSONValue.parse(
+                topology.get_bolts().get("bolt-1").get_common().get_json_conf());
+        // properties added for custom purposes and persisted in the component conf
+        assertTrue(boltConf.containsKey("MY.INAVLID.KEY"));
+    }
+
+    @Test
+    public void testComponentConfigMissing() throws Exception {
+        TopologyDef topologyDef = FluxParser.parseResource("/configs/component-config-missing-test.yaml", false,
+                true, null, false);
+        Config conf = FluxBuilder.buildConfig(topologyDef);
+        ExecutionContext context = new ExecutionContext(topologyDef, conf);
+        StormTopology topology = FluxBuilder.buildTopology(context);
+        assertNotNull(topology);
+        topology.validate();
+
+        Map<String, Object> spoutConf = (Map<String, Object>) JSONValue.parse(
+                topology.get_spouts().get("spout-1").get_common().get_json_conf());
+        assertTrue(spoutConf == null || !spoutConf.containsKey(Config.TOPOLOGY_TUPLE_COMPRESSION_ENABLE));
+
+        Map<String, Object> boltConf = (Map<String, Object>) JSONValue.parse(
+                topology.get_bolts().get("bolt-1").get_common().get_json_conf());
+        assertTrue(boltConf == null || !boltConf.containsKey(Config.TOPOLOGY_TUPLE_COMPRESSION_ENABLE));
+    }
+
+    @Test
     public void testBadHbase() throws Exception {
         TopologyDef topologyDef = FluxParser.parseResource("/configs/bad_hbase.yaml", false, true, null, false);
         Config conf = FluxBuilder.buildConfig(topologyDef);
         ExecutionContext context = new ExecutionContext(topologyDef, conf);
-        StormTopology topology = FluxBuilder.buildTopology(context);
-        assertNotNull(topology);
-        topology.validate();
+
+        IllegalArgumentException expectedException = assertThrows(IllegalArgumentException.class, () -> FluxBuilder.buildTopology(context));
+        assertTrue(expectedException.getMessage().contains("Couldn't find a suitable constructor"));
     }
 
     @Test
@@ -194,13 +276,13 @@ public class TCKTest {
         topology.validate();
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testInvalidTopologySource() throws Exception {
         TopologyDef topologyDef = FluxParser.parseResource("/configs/invalid-existing-topology.yaml", false, true, null, false);
-        assertFalse("Topology config is invalid.", topologyDef.validate());
+        assertFalse(topologyDef.validate(), "Topology config is invalid.");
         Config conf = FluxBuilder.buildConfig(topologyDef);
         ExecutionContext context = new ExecutionContext(topologyDef, conf);
-        StormTopology topology = FluxBuilder.buildTopology(context);
+        assertThrows(IllegalArgumentException.class, () -> FluxBuilder.buildTopology(context));
     }
 
 
@@ -249,21 +331,48 @@ public class TCKTest {
         topology.validate();
 
         // test basic substitution
-        assertEquals("Property not replaced.",
-                "substitution-topology",
-                context.getTopologyDef().getName());
+        assertEquals("substitution-topology",
+                context.getTopologyDef().getName(), "Property not replaced.");
 
         // test environment variable substitution
         // $PATH should be defined on most systems
         String envPath = System.getenv().get("PATH");
-        assertEquals("ENV variable not replaced.",
-                envPath,
-                context.getTopologyDef().getConfig().get("test.env.value"));
+        assertEquals(envPath,
+                context.getTopologyDef().getConfig().get("test.env.value"), "ENV variable not replaced.");
         
         //Test substitution where the target type is List
         assertThat("List property is not replaced by the expected value",
                Collections.singletonList("A string list"),
                is(context.getTopologyDef().getConfig().get("list.property.target")));
 
+        //Test substitution where the target type is a List element
+        assertThat("List element property is not replaced by the expected value",
+                "A string list",
+                is(context.getTopologyDef().getConfig().get("list.element.property.target")));
+
+    }
+    
+    @Test
+    public void testTopologyWithInvalidStaticFactoryArgument() throws Exception {
+        //STORM-3087.
+        TopologyDef topologyDef = FluxParser.parseResource("/configs/bad_static_factory_test.yaml", false, true, null, false);
+        Config conf = FluxBuilder.buildConfig(topologyDef);
+        ExecutionContext context = new ExecutionContext(topologyDef, conf);
+
+        IllegalArgumentException expectedException = assertThrows(IllegalArgumentException.class, () -> FluxBuilder.buildTopology(context));
+        assertTrue(expectedException.getMessage().contains("Couldn't find a suitable static method"));
+    }
+
+    @Test
+    public void testTopologyWithWorkerHook() throws Exception {
+        TopologyDef topologyDef = FluxParser.parseResource("/configs/worker_hook.yaml", false, true, null, false);
+        Config conf = FluxBuilder.buildConfig(topologyDef);
+        ExecutionContext context = new ExecutionContext(topologyDef, conf);
+        StormTopology topology = FluxBuilder.buildTopology(context);
+        assertNotNull(topology);
+        assertTrue(topologyDef.getName().equals("worker-hook-topology"));
+        assertTrue(topologyDef.getWorkerHooks().size() > 0);
+        assertTrue(topology.get_worker_hooks_size() > 0);
+        topology.validate();
     }
 }

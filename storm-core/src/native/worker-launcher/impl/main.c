@@ -18,6 +18,9 @@
 
 #include "configuration.h"
 #include "worker-launcher.h"
+#include "oci/oci.h"
+#include "oci/oci_launch_cmd.h"
+#include "oci/oci_reap.h"
 
 #include <errno.h>
 #include <grp.h>
@@ -39,16 +42,21 @@
 #endif
 
 void display_usage(FILE *stream) {
-  fprintf(stream,
-          "Usage: worker-launcher --checksetup\n");
-  fprintf(stream,
-      "Usage: worker-launcher user command command-args\n");
+  fprintf(stream, "Usage: worker-launcher --checksetup\n");
+  fprintf(stream, "Usage: worker-launcher user command command-args\n");
   fprintf(stream, "Commands:\n");
   fprintf(stream, "   initialize stormdist dir: code-dir <code-directory>\n");
+  fprintf(stream, "   initialize artifacts dir: artifacts-dir <directory>\n");
   fprintf(stream, "   remove a file/directory: rmr <directory>\n");
   fprintf(stream, "   launch a worker: worker <working-directory> <script-to-run>\n");
   fprintf(stream, "   launch a profiler: profiler <working-directory> <script-to-run>\n");
   fprintf(stream, "   signal a worker: signal <pid> <signal>\n");
+  fprintf(stream, "   launch a docker container: launch-docker-container <working-directory> <script-to-run>\n");
+  fprintf(stream, "   run a docker command: run-docker-cmd <working-directory> <script-to-run>\n");
+  fprintf(stream, "   profile a docker container: profile-docker-container <worker-id> <script-to-run>\n");
+  fprintf(stream, "   launch an oci container:  run-oci-container <working-directory> <command-file> <worker-artifacts-dir>\n");
+  fprintf(stream, "   reap an oci container: reap-oci-container <container-id> <num-reap-layers-keep>\n");
+  fprintf(stream, "   profile a oci container: profile-oci-container <container-pid> <script-to-run>\n");
 }
 
 int main(int argc, char **argv) {
@@ -91,22 +99,23 @@ int main(int argc, char **argv) {
     fprintf(ERRORFILE, "Configuration file %s not found.\n", orig_conf_file);
     exit(INVALID_CONFIG_FILE);
   }
+  if (do_check_setup) {
+    fprintf(LOGFILE, "Using configuration file %s \n", conf_file);
+  }
   if (check_configuration_permissions(conf_file) != 0) {
     exit(INVALID_CONFIG_FILE);
   }
   read_config(conf_file);
-  free(conf_file);
-  conf_file = NULL;
 
-  // look up the node manager group in the config file
-  char *nm_group = get_value(LAUNCHER_GROUP_KEY);
-  if (nm_group == NULL) {
+  // look up the worker launcher group in the config file
+  char *wl_group = get_value(LAUNCHER_GROUP_KEY);
+  if (wl_group == NULL) {
     fprintf(ERRORFILE, "Can't get configured value for %s.\n", LAUNCHER_GROUP_KEY);
     exit(INVALID_CONFIG_FILE);
   }
-  struct group *group_info = getgrnam(nm_group);
+  struct group *group_info = getgrnam(wl_group);
   if (group_info == NULL) {
-    fprintf(ERRORFILE, "Can't get group information for %s - %s.\n", nm_group,
+    fprintf(ERRORFILE, "Can't get group information for %s - %s.\n", wl_group,
             strerror(errno));
     fflush(LOGFILE);
     exit(INVALID_CONFIG_FILE);
@@ -114,14 +123,33 @@ int main(int argc, char **argv) {
 
   set_launcher_uid(getuid(), group_info->gr_gid);
   // if we are running from a setuid executable, make the real uid root
-  setuid(0);
+  if (setuid(0) != 0) {
+    fprintf(ERRORFILE, "ERROR: unable to set user to root - %s\n", strerror(errno));
+    fprintf(ERRORFILE, "The worker-launcher binary must be owned by root, group-owned by the"
+            " worker-launcher group, with mode 6550 (setuid/setgid)"
+            " (see \"Run worker processes as user who submitted the topology\" in SECURITY.md).\n");
+    fflush(ERRORFILE);
+    exit(SETUID_OPER_FAILED);
+  }
   // set the real and effective group id to the node manager group
-  setgid(group_info->gr_gid);
+  if (setgid(group_info->gr_gid) != 0) {
+    fprintf(ERRORFILE, "ERROR: unable to set group to %u - %s\n", group_info->gr_gid,
+            strerror(errno));
+    fflush(ERRORFILE);
+    exit(SETUID_OPER_FAILED);
+  }
 
   if (check_executor_permissions(executable_file) != 0) {
-    fprintf(ERRORFILE, "Invalid permissions on worker-launcher binary.\n");
+    fprintf(LOGFILE, "worker-launcher config file: %s \n", conf_file);
+    free(conf_file);
+    conf_file = NULL;
+    fprintf(ERRORFILE, "ERROR: Invalid permissions on worker-launcher binary.\n");
     return INVALID_CONTAINER_EXEC_PERMISSIONS;
   }
+
+  free(executable_file);
+  free(conf_file);
+  conf_file = NULL;
 
   if (do_check_setup != 0) {
     // basic setup checks done
@@ -131,12 +159,13 @@ int main(int argc, char **argv) {
   }
 
   //checks done for user name
-  if (argv[optind] == NULL) {
+  const char *user_name = argv[optind];
+  if (user_name == NULL) {
     fprintf(ERRORFILE, "Invalid user name.\n");
     return INVALID_USER_NAME;
   }
 
-  int ret = set_user(argv[optind]);
+  int ret = set_user(user_name);
   if (ret != 0) {
     return ret;
   }
@@ -150,80 +179,208 @@ int main(int argc, char **argv) {
 
   if (strcasecmp("code-dir", command) == 0) {
     if (argc != 4) {
-      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 4) for code-dir\n",
-	      argc);
+      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 4) for code-dir\n", argc);
       fflush(ERRORFILE);
-      return INVALID_ARGUMENT_NUMBER;
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      exit_code = setup_dir_permissions(argv[optind], 0, TRUE);
     }
-    exit_code = setup_dir_permissions(argv[optind], 0);
   } else if (strcasecmp("artifacts-dir", command) == 0) {
     if (argc != 4) {
-      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 4) for artifacts-dir\n",
-	      argc);
+      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 4) for artifacts-dir\n", argc);
       fflush(ERRORFILE);
-      return INVALID_ARGUMENT_NUMBER;
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      exit_code = setup_dir_permissions(argv[optind], 1, TRUE);
     }
-    exit_code = setup_dir_permissions(argv[optind], 1);
   } else if (strcasecmp("blob", command) == 0) {
       if (argc != 4) {
-          fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 4) for blob\n",
-                  argc);
-          fflush(ERRORFILE);
-          return INVALID_ARGUMENT_NUMBER;
+        fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 4) for blob\n", argc);
+        fflush(ERRORFILE);
+        exit_code = INVALID_ARGUMENT_NUMBER;
+      } else {
+        exit_code = setup_dir_permissions(argv[optind], 0, TRUE);
       }
-      exit_code = setup_dir_permissions(argv[optind], 0);
   } else if (strcasecmp("rmr", command) == 0) {
     if (argc != 4) {
-      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 4) for rmr\n",
-	      argc);
+      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 4) for rmr\n", argc);
       fflush(ERRORFILE);
-      return INVALID_ARGUMENT_NUMBER;
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      exit_code = recursive_delete(argv[optind], 1);
     }
-    exit_code = recursive_delete(argv[optind], 1);
   } else if (strcasecmp("worker", command) == 0) {
     if (argc != 5) {
-      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 5) for worker\n",
-	      argc);
+      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 5) for worker\n", argc);
       fflush(ERRORFILE);
-      return INVALID_ARGUMENT_NUMBER;
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      working_dir = argv[optind++];
+      exit_code = setup_dir_permissions(working_dir, 1, TRUE);
+      if (exit_code == 0) {
+        exit_code = setup_worker_tmp_permissions(working_dir);
+        if (exit_code == 0) {
+          exit_code = exec_as_user(working_dir, argv[optind]);
+        }
+      }
     }
-    working_dir = argv[optind++];
-    exit_code = setup_dir_permissions(working_dir, 1);
-    if (exit_code == 0) {
+  } else if (strcasecmp("launch-docker-container", command) == 0) {
+    if (argc != 5) {
+      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 5) for launch-docker-container\n", argc);
+      fflush(ERRORFILE);
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      working_dir = argv[optind++];
+      // Read and parse the docker command file before setup_dir_permissions
+      // changes the ownership of the worker directory (which contains the
+      // command file) below.
+      char *docker_command = parse_docker_command_file(argv[optind]);
+      exit_code = setup_dir_permissions(working_dir, 1, TRUE);
+      if (exit_code == 0) {
+        exit_code = setup_worker_tmp_permissions(working_dir);
+        if (exit_code == 0) {
+          exit_code = exec_docker_cmd(docker_command);
+        }
+      }
+    }
+  } else if (strcasecmp("run-docker-cmd", command) == 0) {
+    if (argc != 5) {
+      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 5) for run-docker-cmd\n", argc);
+      fflush(ERRORFILE);
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      working_dir = argv[optind++];
+      exit_code = run_docker_cmd(working_dir, argv[optind]);
+    }
+  } else if (strcasecmp("profile-docker-container", command) == 0) {
+    if (argc != 5) {
+      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 5) for profile-docker-container\n", argc);
+      fflush(ERRORFILE);
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      const char * worker_id = argv[optind++];
+      // Validate the worker id (a type 4 UUID, the same shape as a container
+      // id) before it is used to build the docker command line.
+      if (!validate_container_id(worker_id)) {
+        fprintf(ERRORFILE, "ERROR: Bad worker id in profile-docker-container: %s\n", worker_id);
+        fflush(ERRORFILE);
+        exit_code = INVALID_ARGUMENT_NUMBER;
+      } else {
+        int pid = get_docker_container_pid(worker_id);
+        exit_code = profile_oci_container(pid, argv[optind]);
+      }
+    }
+  } else if (strcasecmp("profiler", command) == 0) {
+    if (argc != 5) {
+      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 5) for profiler\n", argc);
+      fflush(ERRORFILE);
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      working_dir = argv[optind++];
       exit_code = exec_as_user(working_dir, argv[optind]);
     }
-   } else if (strcasecmp("profiler", command) == 0) {
-    if (argc != 5) {
-      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 5) for profiler\n",
-	      argc);
-      fflush(ERRORFILE);
-      return INVALID_ARGUMENT_NUMBER;
-    }
-    working_dir = argv[optind++];
-    exit_code = exec_as_user(working_dir, argv[optind]);
   } else if (strcasecmp("signal", command) == 0) {
     if (argc != 5) {
       fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 5) for signal\n",
 	      argc);
       fflush(ERRORFILE);
-      return INVALID_ARGUMENT_NUMBER;
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      char* end_ptr = NULL;
+      char* option = argv[optind++];
+      int container_pid = strtol(option, &end_ptr, 10);
+      if (option == end_ptr || *end_ptr != '\0') {
+        fprintf(ERRORFILE, "Illegal argument for container pid %s\n", option);
+        fflush(ERRORFILE);
+        exit_code = INVALID_ARGUMENT_NUMBER;
+      } else {
+        option = argv[optind++];
+        int signal = strtol(option, &end_ptr, 10);
+        if (option == end_ptr || *end_ptr != '\0') {
+          fprintf(ERRORFILE, "Illegal argument for signal %s\n", option);
+          fflush(ERRORFILE);
+          exit_code = INVALID_ARGUMENT_NUMBER;
+        } else {
+          exit_code = signal_container_as_user(user_detail->pw_name, container_pid, signal);
+        }
+      }
     }
-    char* end_ptr = NULL;
-    char* option = argv[optind++];
-    int container_pid = strtol(option, &end_ptr, 10);
-    if (option == end_ptr || *end_ptr != '\0') {
-      fprintf(ERRORFILE, "Illegal argument for container pid %s\n", option);
+  } else if (strcasecmp("run-oci-container", command) == 0) {
+    if (argc != 6) {
+      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 6) for run-oci-container\n", argc);
       fflush(ERRORFILE);
-      return INVALID_ARGUMENT_NUMBER;
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      working_dir = argv[optind++];
+      const char* command_file = argv[optind++];
+      const char* worker_artifacts_dir = argv[optind];
+      // Parse the launch command file before setup_dir_permissions changes
+      // the ownership of the worker directory (which contains the command
+      // file) below.
+      oci_launch_cmd* olc = parse_oci_launch_cmd(command_file);
+      if (olc == NULL) {
+        exit_code = INVALID_CONFIG_FILE;
+      } else if (!oci_launch_cmd_matches_user(olc, user_name)) {
+        // The launch command file's username must match the user passed to
+        // the worker-launcher on the command line.
+        fprintf(ERRORFILE, "ERROR: OCI command file username %s does not match %s\n",
+                olc->username, user_name);
+        fflush(ERRORFILE);
+        exit_code = INVALID_USER_NAME;
+      } else {
+        exit_code = setup_dir_permissions(working_dir, 1, TRUE);
+        if (exit_code == 0) {
+          exit_code = setup_worker_tmp_permissions(working_dir);
+          if (exit_code == 0) {
+            //becomes root.
+            if (setuid(0) != 0) {
+              fprintf(ERRORFILE, "ERROR: unable to set user to root - %s\n", strerror(errno));
+              fflush(ERRORFILE);
+              exit_code = SETUID_OPER_FAILED;
+            } else {
+              exit_code = run_oci_container(olc, worker_artifacts_dir);
+            }
+          }
+        }
+      }
+      free_oci_launch_cmd(olc);
     }
-    option = argv[optind++];
-    int signal = strtol(option, &end_ptr, 10);
-    if (option == end_ptr || *end_ptr != '\0') {
-      fprintf(ERRORFILE, "Illegal argument for signal %s\n", option);
+  } else if (strcasecmp("reap-oci-container", command) == 0) {
+    if (argc != 5) {
+      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 5) for reap-oci-container\n",
+	      argc);
       fflush(ERRORFILE);
-      return INVALID_ARGUMENT_NUMBER;
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      char* container_id = argv[optind++];
+      int num_reap_layers_keep = atoi(argv[optind]);
+      // Validate the container id before it is used in a filesystem path or
+      // the runc command line.
+      if (!validate_container_id(container_id)) {
+        fprintf(ERRORFILE, "ERROR: Bad container id in reap-oci-container: %s\n", container_id);
+        fflush(ERRORFILE);
+        exit_code = INVALID_ARGUMENT_NUMBER;
+      } else {
+        //becomes root.
+        if (setuid(0) != 0) {
+          fprintf(ERRORFILE, "ERROR: unable to set user to root - %s\n", strerror(errno));
+          fflush(ERRORFILE);
+          exit_code = SETUID_OPER_FAILED;
+        } else {
+          exit_code = cleanup_oci_container_by_id(container_id, num_reap_layers_keep);
+        }
+      }
     }
-    exit_code = signal_container_as_user(user_detail->pw_name, container_pid, signal);
+  } else if (strcasecmp("profile-oci-container", command) == 0) {
+    if (argc != 5) {
+      fprintf(ERRORFILE, "Incorrect number of arguments (%d vs 5) for profile-oci-container\n",
+	      argc);
+      fflush(ERRORFILE);
+      exit_code = INVALID_ARGUMENT_NUMBER;
+    } else {
+      char* container_pid = argv[optind++];
+      exit_code = profile_oci_container(atoi(container_pid), argv[optind]);
+    }
   } else {
     fprintf(ERRORFILE, "Invalid command %s not supported.",command);
     fflush(ERRORFILE);

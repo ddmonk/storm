@@ -67,7 +67,7 @@ public class FluxShellSpout extends ShellSpout implements IRichSpout {
      * className: "org.apache.storm.flux.wrappers.bolts.FluxShellSpout"
      * constructorArgs:
      * # command line
-     * - ["python", "splitsentence.py"]
+     * - ["python3", "splitsentence.py"]
      * # output fields
      * - ["word"]
      * configMethods:
@@ -92,7 +92,7 @@ public class FluxShellSpout extends ShellSpout implements IRichSpout {
      * className: "org.apache.storm.flux.wrappers.bolts.FluxShellSpout"
      * constructorArgs:
      * # command line
-     * - ["python", "splitsentence.py"]
+     * - ["python3", "splitsentence.py"]
      * # output fields
      * - ["word"]
      * configMethods:
@@ -120,7 +120,7 @@ public class FluxShellSpout extends ShellSpout implements IRichSpout {
      * - className: org.apache.storm.flux.wrappers.bolts.FluxShellSpout
      *   id: my_spout
      *   constructorArgs:
-     *   - [python, my_spout.py]
+     *   - [python3, my_spout.py]
      *   configMethods:
      *   - name: setDefaultStream
      *     args:
@@ -141,7 +141,7 @@ public class FluxShellSpout extends ShellSpout implements IRichSpout {
      * - className: org.apache.storm.flux.wrappers.bolts.FluxShellSpout
      *   id: my_spout
      *   constructorArgs:
-     *   - [python, my_spout.py]
+     *   - [python3, my_spout.py]
      *   configMethods:
      *   - name: setNamedStream
      *     args:
@@ -159,9 +159,9 @@ public class FluxShellSpout extends ShellSpout implements IRichSpout {
     public void declareOutputFields(OutputFieldsDeclarer declarer) {
         Iterator it = this.outputFields.entrySet().iterator();
         while (it.hasNext()) {
-            Map.Entry entryTuple = (Map.Entry)it.next();
-            String key = (String)entryTuple.getKey();
-            String[] value = (String[])entryTuple.getValue();
+            Map.Entry entryTuple = (Map.Entry) it.next();
+            String key = (String) entryTuple.getKey();
+            String[] value = (String[]) entryTuple.getValue();
             if (key.equals("default")) {
                 declarer.declare(new Fields(value));
             } else {

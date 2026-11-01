@@ -16,10 +16,12 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package org.apache.storm.hooks;
 
 /**
- * This Exception is thrown when registered {@link org.apache.storm.ISubmitterHook} could not be initialized or invoked.
+ * This Exception is thrown when registered {@link org.apache.storm.ISubmitterHook} could not be
+ * initialized or invoked.
  */
 public class SubmitterHookException extends RuntimeException {
 

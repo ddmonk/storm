@@ -1,19 +1,13 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version
+ * 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
  */
 
 package org.apache.storm.scheduler;
@@ -22,8 +16,8 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import org.apache.storm.Constants;
 import org.apache.storm.scheduler.resource.normalization.NormalizedResourceOffer;
+import org.apache.storm.scheduler.resource.normalization.NormalizedResourceRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,13 +39,14 @@ public class SupervisorDetails {
      */
     private final Object schedulerMeta;
     /**
-     * all the ports of the supervisor.
-     */
-    private Set<Integer> allPorts;
-    /**
      * Map containing a manifest of resources for the node the supervisor resides.
      */
     private final NormalizedResourceOffer totalResources;
+    /**
+     * all the ports of the supervisor.
+     */
+    private Set<Integer> allPorts;
+    private final long uptimeSecs;
 
     /**
      * Create the details of a new supervisor.
@@ -65,12 +60,22 @@ public class SupervisorDetails {
      */
     public SupervisorDetails(String id, Integer serverPort, String host, Object meta, Object schedulerMeta,
                              Collection<? extends Number> allPorts, Map<String, Double> totalResources) {
+        // Callers that do not supply uptime (tests and every path other than the idle-supervisor rebalance) default to
+        // Long.MAX_VALUE, i.e. treated as indefinitely stable so the rebalance flap guard never holds them back. This is
+        // the deliberate opposite of Nimbus#supervisorUptimeSecs, which maps an unset uptime to 0L; production always
+        // supplies the real uptime through that path, so this default only affects non-feature callers.
+        this(id, serverPort, host, meta, schedulerMeta, allPorts, totalResources, Long.MAX_VALUE);
+    }
+
+    public SupervisorDetails(String id, Integer serverPort, String host, Object meta, Object schedulerMeta,
+                             Collection<? extends Number> allPorts, Map<String, Double> totalResources, long uptimeSecs) {
 
         this.id = id;
         this.serverPort = serverPort;
         this.host = host;
         this.meta = meta;
         this.schedulerMeta = schedulerMeta;
+        this.uptimeSecs = uptimeSecs;
         if (allPorts != null) {
             setAllPorts(allPorts);
         } else {
@@ -88,6 +93,10 @@ public class SupervisorDetails {
         this(id, null, null, meta, null, null, totalResources);
     }
 
+    public SupervisorDetails(String id, Object meta, Map<String, Double> totalResources, long uptimeSecs) {
+        this(id, null, null, meta, null, null, totalResources, uptimeSecs);
+    }
+
     public SupervisorDetails(String id, Object meta, Collection<? extends Number> allPorts) {
         this(id, null, null, meta, null, allPorts, null);
     }
@@ -101,24 +110,25 @@ public class SupervisorDetails {
         this(id, null, host, null, schedulerMeta, allPorts, totalResources);
     }
 
+    public SupervisorDetails(String id, String host, Object schedulerMeta,
+                             Collection<? extends Number> allPorts, Map<String, Double> totalResources, long uptimeSecs) {
+        this(id, null, host, null, schedulerMeta, allPorts, totalResources, uptimeSecs);
+    }
+
     public SupervisorDetails(String id, int serverPort, String host, Object schedulerMeta,
                              Collection<? extends Number> allPorts, Map<String, Double> totalResources) {
         this(id, serverPort, host, null, schedulerMeta, allPorts, totalResources);
     }
-    
+
+    public SupervisorDetails(String id, int serverPort, String host, Object schedulerMeta,
+                             Collection<? extends Number> allPorts, Map<String, Double> totalResources, long uptimeSecs) {
+        this(id, serverPort, host, null, schedulerMeta, allPorts, totalResources, uptimeSecs);
+    }
+
     @Override
     public String toString() {
         return getClass().getSimpleName() + " ID: " + id + " HOST: " + host + " META: " + meta
-                + " SCHED_META: " + schedulerMeta + " PORTS: " + allPorts;
-    }
-
-    private void setAllPorts(Collection<? extends Number> allPorts) {
-        this.allPorts = new HashSet<>();
-        if (allPorts != null) {
-            for (Number n: allPorts) {
-                this.allPorts.add(n.intValue());
-            }
-        }
+               + " SCHED_META: " + schedulerMeta + " PORTS: " + allPorts;
     }
 
     public String getId() {
@@ -136,9 +146,22 @@ public class SupervisorDetails {
     public Object getMeta() {
         return meta;
     }
-    
+
     public Set<Integer> getAllPorts() {
         return allPorts;
+    }
+
+    public long getUptimeSecs() {
+        return uptimeSecs;
+    }
+
+    private void setAllPorts(Collection<? extends Number> allPorts) {
+        this.allPorts = new HashSet<>();
+        if (allPorts != null) {
+            for (Number n : allPorts) {
+                this.allPorts.add(n.intValue());
+            }
+        }
     }
 
     public Object getSchedulerMeta() {
@@ -157,6 +180,15 @@ public class SupervisorDetails {
      */
     public double getTotalCpu() {
         return totalResources.getTotalCpu();
+    }
+
+    /*
+     * Get the total Generic resources on this supervisor.
+     */
+    public Map<String, Double> getTotalGenericResources() {
+        Map<String, Double> genericResources = totalResources.toNormalizedMap();
+        NormalizedResourceRequest.removeNonGenericResources(genericResources);
+        return genericResources;
     }
 
     /**

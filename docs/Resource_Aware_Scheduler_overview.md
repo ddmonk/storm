@@ -184,6 +184,10 @@ The user can set some default configurations for the Resource Aware Scheduler in
     topology.worker.max.heap.size.mb: 768.0
 ```
 
+### Warning
+
+If Resource Aware Scheduling is enabled, it will dynamically calculate the number of workers and the `topology.workers` setting is ignored.
+
 <div id='Topology-Priorities-and-Per-User-Resource'/>
 
 ## Topology Priorities and Per User Resource 
@@ -246,6 +250,8 @@ A user can specify on a per topology basis what scheduling strategy to use.  Use
 ```
 Parameters:
 * clazz – The strategy class that implements the IStrategy interface
+
+Only the strategies that ship with Storm may be selected by default.  They are listed under `nimbus.scheduler.strategy.class.whitelist` in *conf/defaults.yaml*, and the same set applies when that config is not set at all.  This differs from earlier releases, where leaving `nimbus.scheduler.strategy.class.whitelist` unset allowed any strategy class on the nimbus classpath, so a cluster upgrading from such a release has to add its own strategies to the list.  A strategy of your own has to be added to `nimbus.scheduler.strategy.class.whitelist` in the nimbus configuration, otherwise nimbus refuses to schedule the topology and reports which class was refused.
 
 Example Usage:
 ```
@@ -373,6 +379,7 @@ The metrics with -1:__system are generally metrics for the entire worker.  In th
 The Memory usage is similar but look at the usedBytes.  offHeap is 64621728 or about 62MB, and onHeap is 83857888 or about 80MB, but you should know what you set your heap to in each of your workers already.  How do you divide this up per bolt/spout?  That is a bit harder and may require some trial and error from your end.
 
 <div id='Enhancements-on-original-DefaultResourceAwareStrategy'/>
+
 ## Enhancements on original DefaultResourceAwareStrategy
 
 The default resource aware scheduling strategy as described in the paper above has two main scheduling phases:

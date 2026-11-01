@@ -22,8 +22,6 @@ import org.apache.storm.redis.common.adapter.RedisCommandsAdapterJedisCluster;
 import org.apache.storm.redis.common.commands.RedisCommands;
 import redis.clients.jedis.JedisCluster;
 
-import java.io.IOException;
-
 /**
  * Container for managing JedisCluster.
  * <p/>
@@ -33,7 +31,8 @@ public class RedisClusterContainer implements RedisCommandsInstanceContainer {
     private JedisCluster jedisCluster;
 
     /**
-     * Constructor
+     * Constructor.
+     *
      * @param jedisCluster JedisCluster instance
      */
     public RedisClusterContainer(JedisCluster jedisCluster) {
@@ -60,11 +59,7 @@ public class RedisClusterContainer implements RedisCommandsInstanceContainer {
      * {@inheritDoc}
      */
     @Override
-    public void close() throws IOException {
-        try {
-            this.jedisCluster.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+    public void close() {
+        this.jedisCluster.close();
     }
 }

@@ -20,7 +20,6 @@ package org.apache.storm.perf.bolt;
 
 import java.util.HashMap;
 import java.util.Map;
-
 import org.apache.storm.task.TopologyContext;
 import org.apache.storm.topology.BasicOutputCollector;
 import org.apache.storm.topology.OutputFieldsDeclarer;
@@ -28,7 +27,6 @@ import org.apache.storm.topology.base.BaseBasicBolt;
 import org.apache.storm.tuple.Fields;
 import org.apache.storm.tuple.Tuple;
 import org.apache.storm.tuple.Values;
-
 
 public class CountBolt extends BaseBasicBolt {
     public static final String FIELDS_WORD = "word";

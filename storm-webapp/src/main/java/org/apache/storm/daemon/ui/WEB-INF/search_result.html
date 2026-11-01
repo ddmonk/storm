@@ -1,0 +1,128 @@
+<html><head>
+    <!--
+     Licensed to the Apache Software Foundation (ASF) under one or more
+     contributor license agreements.  See the NOTICE file distributed with
+     this work for additional information regarding copyright ownership.
+     The ASF licenses this file to You under the Apache License, Version 2.0
+     (the "License"); you may not use this file except in compliance with
+     the License.  You may obtain a copy of the License at
+
+         http://www.apache.org/licenses/LICENSE-2.0
+
+     Unless required by applicable law or agreed to in writing, software
+     distributed under the License is distributed on an "AS IS" BASIS,
+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     See the License for the specific language governing permissions and
+     limitations under the License.
+    -->
+<meta charset="UTF-8">
+<script>!function(){var m=document.cookie.match(/(?:^|;\s*)stormTheme=([^;]*)/);var t=m?decodeURIComponent(m[1]):null;if(!t)t=window.matchMedia&&window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-bs-theme",t)}()</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storm UI</title>
+<link href="/dist/main.bundle.css?_ts=@packageTimestamp@" rel="stylesheet" type="text/css">
+<script src="/dist/main.bundle.js?_ts=@packageTimestamp@" type="text/javascript"></script>
+</head>
+<body>
+<div class="container-fluid">
+  <div class="row">
+    <div id="search-form"></div>
+  </div>
+  <div class="row">
+    <div id="result"></div>
+  </div>
+  <div class="row">
+    <div id="json-response-error"></div>
+  </div>
+  <div>
+    <p id="page-rendered-at-timestamp"></p>
+  </div>
+</div>
+</body>
+<script>
+function jsError(other) {
+    try {
+      other();
+    } catch (err) {
+      getStatic("/templates/json-error-template.html", function(template) {
+        $("#json-response-error").append(Mustache.render($(template).filter("#json-error-template").html(),{error: "JS Error", errorMessage: err}));
+      });
+    }
+}
+
+$(document).ready(function() {
+    var id = $.url("?id");
+    var search = $.url("?search");
+    var count = $.url("?count") || 2;
+    var searchArchived = $.url("?searchArchived") || "";
+
+    $.ajaxSetup({
+        "error":function(jqXHR,textStatus,response) {
+            var errorJson = jQuery.parseJSON(jqXHR.responseText);
+            getStatic("/templates/json-error-template.html", function(template) {
+                $("#json-response-error").append(Mustache.render($(template).filter("#json-error-template").html(),errorJson));
+            });
+        }
+    });
+
+    getStatic("/templates/search-result-page-template.html", function(template) {
+        $("#search-form").append(Mustache.render($(template).filter("#search-form-template").html(),{id: id, search: search, count: count, searchArchived: searchArchived}));
+
+        var result = $("#result");
+        $.getJSON("/api/v1/topology-workers/"+id, function(response,status,jqXHR) {
+           jsError(function() {
+               for (var index in response.hostPortList) {
+                 var host = response.hostPortList[index].host;
+                 var port = response.hostPortList[index].port;
+                 var elemId = "search-results-"+host.replace(/\./g,"-")+"-"+port;
+                 response.hostPortList[index].elemId = elemId;
+               }
+               result.append(Mustache.render($(template).filter("#search-result-files-template").html(),response));
+           });
+
+           var logviewerPort = response.logviewerPort;
+           var logviewerScheme = response.logviewerScheme;
+           for (var index in response.hostPortList) {
+             jsError(function() {
+                 var host = response.hostPortList[index].host;
+                 var port = response.hostPortList[index].port;
+                 var elemId = response.hostPortList[index].elemId;
+                 var file = id+"/"+port+"/worker.log";
+                 var searchURL = logviewerScheme + "://"+host+":"+logviewerPort+"/api/v1/search?file="+encodeURIComponent(file)+"&search-string="+search+"&num-matches="+count;
+                 if (searchArchived != "") {
+                   searchURL = logviewerScheme + "://"+host+":"+logviewerPort+"/api/v1/deepSearch/"+id+"?search-string="+search+"&num-matches="+count+"&search-archived=true&port="+port;
+                 }
+
+                 $.ajax({dataType: "json",
+                   url: searchURL,
+                   xhrFields: {
+                     withCredentials: true
+                   },
+                   success: $.proxy(
+                       function(data,status,jqXHR) {
+                           data.file = this.file;
+                           data.host = this.host;
+                           data.port = this.port;
+                           data.id = id;
+                           data.logviewerPort = logviewerPort;
+                           data.logviewerScheme = logviewerScheme;
+                           jsError(function() {
+                               var searchTemp = $(template).filter("#search-result-identified-template").html();
+                               if (searchArchived != "") {
+                                   searchTemp = $(template).filter("#deepsearch-result-identified-template").html();
+                               }
+                               var rendered = Mustache.render(searchTemp, data);
+                               $("#"+elemId).replaceWith(rendered);
+                           });
+                       },
+                       {host: host, port: port, file: file, elemId: elemId})
+                 });
+             });
+           }
+       });
+    });
+  });
+
+  getPageRenderedTimestamp("page-rendered-at-timestamp");
+
+</script>
+</html>

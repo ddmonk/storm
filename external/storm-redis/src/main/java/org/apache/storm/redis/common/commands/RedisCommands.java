@@ -18,16 +18,16 @@
 
 package org.apache.storm.redis.common.commands;
 
-import redis.clients.jedis.ScanParams;
-import redis.clients.jedis.ScanResult;
-
 import java.util.Map;
+
+import redis.clients.jedis.params.ScanParams;
+import redis.clients.jedis.resps.ScanResult;
 
 /**
  * This interface represents Jedis methods exhaustively which are used on storm-redis.
  *
- * This is a workaround since Jedis and JedisCluster doesn't implement same interface for binary type of methods,
- * and unify binary methods and string methods into one interface.
+ * <p>This is a workaround since Jedis and JedisCluster doesn't implement same interface for binary type of methods, and
+ * unify binary methods and string methods into one interface.
  */
 public interface RedisCommands {
     // common
@@ -48,7 +48,7 @@ public interface RedisCommands {
 
     Map<byte[], byte[]> hgetAll(byte[] key);
 
-    Map<String,String> hgetAll(String key);
+    Map<String, String> hgetAll(String key);
 
     String hmset(byte[] key, Map<byte[], byte[]> fieldValues);
 

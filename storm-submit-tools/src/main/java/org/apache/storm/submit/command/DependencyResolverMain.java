@@ -18,12 +18,12 @@
 
 package org.apache.storm.submit.command;
 
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
+import com.google.common.base.Preconditions;
 
 import java.io.File;
 import java.net.MalformedURLException;
-import java.net.URL;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -32,13 +32,16 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+
+import net.minidev.json.JSONValue;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.storm.submit.dependency.AetherUtils;
 import org.apache.storm.submit.dependency.DependencyResolver;
 import org.eclipse.aether.artifact.Artifact;
@@ -47,7 +50,6 @@ import org.eclipse.aether.repository.Proxy;
 import org.eclipse.aether.repository.RemoteRepository;
 import org.eclipse.aether.resolution.ArtifactResult;
 import org.eclipse.aether.util.repository.AuthenticationBuilder;
-import org.json.simple.JSONValue;
 
 /**
  * Main class of dependency resolver.
@@ -55,9 +57,11 @@ import org.json.simple.JSONValue;
 public class DependencyResolverMain {
     private static final String OPTION_ARTIFACTS_LONG = "artifacts";
     private static final String OPTION_ARTIFACT_REPOSITORIES_LONG = "artifactRepositories";
+    private static final String OPTION_MAVEN_LOCAL_REPOSITORY_DIRECTORY_LONG = "mavenLocalRepositoryDirectory";
     private static final String OPTION_PROXY_URL_LONG = "proxyUrl";
     private static final String OPTION_PROXY_USERNAME_LONG = "proxyUsername";
     private static final String OPTION_PROXY_PASSWORD_LONG = "proxyPassword";
+    public static final String DEFAULT_FAILBACK_MAVEN_LOCAL_REPOSITORY_DIRECTORY = "local-repo";
 
     /**
      * Main entry of dependency resolver.
@@ -66,7 +70,7 @@ public class DependencyResolverMain {
      * @throws ParseException If there's parsing error on option parse.
      * @throws MalformedURLException If proxy URL is malformed.
      */
-    public static void main(String[] args) throws ParseException, MalformedURLException {
+    public static void main(String[] args) throws ParseException, MalformedURLException, URISyntaxException {
         Options options = buildOptions();
         CommandLineParser parser = new DefaultParser();
         CommandLine commandLine = parser.parse(options, args);
@@ -94,7 +98,9 @@ public class DependencyResolverMain {
         }
 
         try {
-            String localMavenRepoPath = getOrDefaultLocalMavenRepositoryPath("local-repo");
+            String localMavenRepoPath = getOrDefaultLocalMavenRepositoryPath(
+                    commandLine.getOptionValue(OPTION_MAVEN_LOCAL_REPOSITORY_DIRECTORY_LONG),
+                    DEFAULT_FAILBACK_MAVEN_LOCAL_REPOSITORY_DIRECTORY);
 
             // create root directory if not exist
             Files.createDirectories(new File(localMavenRepoPath).toPath());
@@ -111,26 +117,19 @@ public class DependencyResolverMain {
 
             List<ArtifactResult> artifactResults = resolver.resolve(dependencies);
 
-            Iterable<ArtifactResult> missingArtifacts = filterMissingArtifacts(artifactResults);
-            if (missingArtifacts.iterator().hasNext()) {
+            List<ArtifactResult> missingArtifacts = artifactResults.stream()
+                    .filter(ArtifactResult::isMissing)
+                    .collect(Collectors.toList());
+            if (!missingArtifacts.isEmpty()) {
                 printMissingArtifactsToSysErr(missingArtifacts);
                 throw new RuntimeException("Some artifacts are not resolved");
             }
 
             System.out.println(JSONValue.toJSONString(transformArtifactResultToArtifactToPaths(artifactResults)));
             System.out.flush();
-        } catch (Throwable e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
-    }
-
-    private static Iterable<ArtifactResult> filterMissingArtifacts(List<ArtifactResult> artifactResults) {
-        return Iterables.filter(artifactResults, new Predicate<ArtifactResult>() {
-            @Override
-            public boolean apply(ArtifactResult artifactResult) {
-                return artifactResult.isMissing();
-            }
-        });
     }
 
     private static void printMissingArtifactsToSysErr(Iterable<ArtifactResult> missingArtifacts) {
@@ -167,14 +166,15 @@ public class DependencyResolverMain {
         return remoteRepositories;
     }
 
-    private static Proxy parseProxyArg(String proxyUrl, String proxyUsername, String proxyPassword) throws MalformedURLException {
-        URL url = new URL(proxyUrl);
+    private static Proxy parseProxyArg(String proxyUrl, String proxyUsername, String proxyPassword)
+            throws MalformedURLException, URISyntaxException {
+        URI uri = new URI(proxyUrl);
         if (StringUtils.isNotEmpty(proxyUsername) && StringUtils.isNotEmpty(proxyPassword)) {
             AuthenticationBuilder authBuilder = new AuthenticationBuilder();
             authBuilder.addUsername(proxyUsername).addPassword(proxyPassword);
-            return new Proxy(url.getProtocol(), url.getHost(), url.getPort(), authBuilder.build());
+            return new Proxy(uri.getScheme(), uri.getHost(), uri.getPort(), authBuilder.build());
         } else {
-            return new Proxy(url.getProtocol(), url.getHost(), url.getPort());
+            return new Proxy(uri.getScheme(), uri.getHost(), uri.getPort());
         }
     }
 
@@ -187,7 +187,14 @@ public class DependencyResolverMain {
         return artifactToPath;
     }
 
-    private static String getOrDefaultLocalMavenRepositoryPath(String defaultPath) {
+    private static String getOrDefaultLocalMavenRepositoryPath(String customLocalMavenPath, String defaultPath) {
+        if (customLocalMavenPath != null) {
+            Path customPath = new File(customLocalMavenPath).toPath();
+            Preconditions.checkArgument(!Files.exists(customPath) || Files.isDirectory(customPath),
+                    "Custom local maven repository path exist and is not a directory!");
+            return customLocalMavenPath;
+        }
+
         String localMavenRepoPathStr = getLocalMavenRepositoryPath();
         if (StringUtils.isNotEmpty(localMavenRepoPathStr)) {
             Path localMavenRepoPath = new File(localMavenRepoPathStr).toPath();
@@ -210,11 +217,30 @@ public class DependencyResolverMain {
 
     private static Options buildOptions() {
         Options options = new Options();
-        options.addOption(null, OPTION_ARTIFACTS_LONG, true, "REQUIRED string representation of artifacts");
-        options.addOption(null, OPTION_ARTIFACT_REPOSITORIES_LONG, true, "OPTIONAL string representation of artifact repositories");
-        options.addOption(null, OPTION_PROXY_URL_LONG, true, "OPTIONAL URL representation of proxy server");
-        options.addOption(null, OPTION_PROXY_USERNAME_LONG, true, "OPTIONAL Username of proxy server (basic auth)");
-        options.addOption(null, OPTION_PROXY_PASSWORD_LONG, true, "OPTIONAL Password of proxy server (basic auth)");
+        options.addOption(null,
+                OPTION_ARTIFACTS_LONG,
+                true,
+                "REQUIRED string representation of artifacts");
+        options.addOption(null,
+                OPTION_ARTIFACT_REPOSITORIES_LONG,
+                true,
+                "OPTIONAL string representation of artifact repositories");
+        options.addOption(null,
+                OPTION_MAVEN_LOCAL_REPOSITORY_DIRECTORY_LONG,
+                true,
+                "OPTIONAL string representation of local maven repository directory path");
+        options.addOption(null,
+                OPTION_PROXY_URL_LONG,
+                true,
+                "OPTIONAL URL representation of proxy server");
+        options.addOption(null,
+                OPTION_PROXY_USERNAME_LONG,
+                true,
+                "OPTIONAL Username of proxy server (basic auth)");
+        options.addOption(null,
+                OPTION_PROXY_PASSWORD_LONG,
+                true,
+                "OPTIONAL Password of proxy server (basic auth)");
         return options;
     }
 }

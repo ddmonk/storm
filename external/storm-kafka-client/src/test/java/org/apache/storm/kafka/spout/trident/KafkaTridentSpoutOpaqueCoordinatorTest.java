@@ -16,10 +16,11 @@
 
 package org.apache.storm.kafka.spout.trident;
 
+
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
-import static org.mockito.Matchers.any;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -30,15 +31,18 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.storm.kafka.spout.KafkaSpoutConfig;
-import org.apache.storm.kafka.spout.config.builder.SingleTopicKafkaSpoutConfiguration;
+import org.apache.storm.kafka.spout.internal.ClientFactory;
 import org.apache.storm.kafka.spout.subscription.ManualPartitioner;
 import org.apache.storm.kafka.spout.subscription.TopicFilter;
+import org.apache.storm.kafka.spout.trident.config.builder.SingleTopicKafkaTridentSpoutConfiguration;
 import org.apache.storm.utils.Time;
 import org.apache.storm.utils.Time.SimulatedTime;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public class KafkaTridentSpoutOpaqueCoordinatorTest {
 
@@ -47,16 +51,27 @@ public class KafkaTridentSpoutOpaqueCoordinatorTest {
     @Test
     public void testCanGetPartitions() {
         KafkaConsumer<String, String> mockConsumer = mock(KafkaConsumer.class);
+        Admin mockAdmin = mock(Admin.class);
         TopicPartition expectedPartition = new TopicPartition("test", 0);
         TopicFilter mockFilter = mock(TopicFilter.class);
         when(mockFilter.getAllSubscribedPartitions(any())).thenReturn(Collections.singleton(expectedPartition));
 
-        KafkaSpoutConfig<String, String> spoutConfig = 
-            SingleTopicKafkaSpoutConfiguration.createKafkaSpoutConfigBuilder(mockFilter, mock(ManualPartitioner.class), -1)
+        KafkaTridentSpoutConfig<String, String> spoutConfig = 
+            SingleTopicKafkaTridentSpoutConfiguration.createKafkaSpoutConfigBuilder(mockFilter, mock(ManualPartitioner.class), -1)
                 .build();
-        KafkaTridentSpoutOpaqueCoordinator<String, String> coordinator = new KafkaTridentSpoutOpaqueCoordinator<>(spoutConfig, ignored -> mockConsumer);
+        KafkaTridentSpoutCoordinator<String, String> coordinator = new KafkaTridentSpoutCoordinator<>(spoutConfig, new ClientFactory<String, String>() {
+            @Override
+            public Consumer<String, String> createConsumer(Map<String, Object> consumerProps) {
+                return mockConsumer;
+            }
 
-        List<Map<String, Object>> partitionsForBatch = coordinator.getPartitionsForBatch();
+            @Override
+            public Admin createAdmin(Map<String, Object> adminProps) {
+                return mockAdmin;
+            }
+        });
+
+                List < Map < String, Object >> partitionsForBatch = coordinator.getPartitionsForBatch();
 
         List<TopicPartition> tps = deserializePartitions(partitionsForBatch);
 
@@ -67,8 +82,9 @@ public class KafkaTridentSpoutOpaqueCoordinatorTest {
 
     @Test
     public void testCanUpdatePartitions() {
-        try (SimulatedTime time = new SimulatedTime()) {
+        try (SimulatedTime ignored1 = new SimulatedTime()) {
             KafkaConsumer<String, String> mockConsumer = mock(KafkaConsumer.class);
+            Admin mockAdmin = mock(Admin.class);
             TopicPartition expectedPartition = new TopicPartition("test", 0);
             TopicPartition addedLaterPartition = new TopicPartition("test-2", 0);
             HashSet<TopicPartition> allPartitions = new HashSet<>();
@@ -79,19 +95,29 @@ public class KafkaTridentSpoutOpaqueCoordinatorTest {
                 .thenReturn(Collections.singleton(expectedPartition))
                 .thenReturn(allPartitions);
 
-            KafkaSpoutConfig<String, String> spoutConfig = 
-                SingleTopicKafkaSpoutConfiguration.createKafkaSpoutConfigBuilder(mockFilter, mock(ManualPartitioner.class), -1)
+            KafkaTridentSpoutConfig<String, String> spoutConfig = 
+                SingleTopicKafkaTridentSpoutConfiguration.createKafkaSpoutConfigBuilder(mockFilter, mock(ManualPartitioner.class), -1)
                     .build();
-            KafkaTridentSpoutOpaqueCoordinator<String, String> coordinator = new KafkaTridentSpoutOpaqueCoordinator<>(spoutConfig, ignored -> mockConsumer);
+            KafkaTridentSpoutCoordinator<String, String> coordinator = new KafkaTridentSpoutCoordinator<>(spoutConfig, new ClientFactory<String, String>() {
+                @Override
+                public Consumer<String, String> createConsumer(Map<String, Object> consumerProps) {
+                    return mockConsumer;
+                }
 
-            List<Map<String, Object>> partitionsForBatch = coordinator.getPartitionsForBatch();
+                @Override
+                public Admin createAdmin(Map<String, Object> adminProps) {
+                    return mockAdmin;
+                }
+            });
+
+            List < Map < String, Object >> partitionsForBatch = coordinator.getPartitionsForBatch();
 
             List<TopicPartition> firstBatchTps = deserializePartitions(partitionsForBatch);
             
             verify(mockFilter).getAllSubscribedPartitions(mockConsumer);
             assertThat(firstBatchTps, contains(expectedPartition));
 
-            Time.advanceTime(KafkaTridentSpoutOpaqueCoordinator.TIMER_DELAY_MS + spoutConfig.getPartitionRefreshPeriodMs());
+            Time.advanceTime(KafkaTridentSpoutCoordinator.TIMER_DELAY_MS + spoutConfig.getPartitionRefreshPeriodMs());
 
             List<Map<String, Object>> partitionsForSecondBatch = coordinator.getPartitionsForBatch();
             
@@ -104,7 +130,7 @@ public class KafkaTridentSpoutOpaqueCoordinatorTest {
 
     private List<TopicPartition> deserializePartitions(List<Map<String, Object>> tps) {
         return tps.stream()
-            .map(map -> tpSerializer.fromMap(map))
+            .map(tpSerializer::fromMap)
             .collect(Collectors.toList());
     }
 
